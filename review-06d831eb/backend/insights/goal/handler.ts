@@ -1,0 +1,213 @@
+/**
+ * backend/insights/goal/handler.ts
+ *
+ * Handles GET /api/insights/goal requests.
+ *
+ * Flow:
+ *   1. Resolve tenant context.
+ *   2. Validate period param.
+ *   3. Check insights_narratives cache (TTL = 1 hour, section_key = 'goal').
+ *   4. On miss: build GoalSnapshot → build ariesLine text → upsert → return.
+ *   5. If tenant has no primary_goal set → return { status: 'no_goal' }.
+ *   6. Caller can pass ?force=true to skip cache.
+ */
+
+import { NextResponse } from 'next/server';
+import pool, { type PoolClient } from '@/lib/db';
+import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { buildGoalSnapshot } from './goal-snapshot-builder';
+import { buildGoalText } from './goal-template-builder';
+import type { NarrativePeriod } from '../narrative/snapshot-builder';
+import crypto from 'crypto';
+import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
+import { checkInsightsForceThrottle } from '../force-throttle';
+
+// v3: normalize free-form primary_goal → canonical GoalType, so the goal label
+// and Aries narrative are no longer blank when onboarding stored natural-language
+// goal text. Bump invalidates stale v2 rows that cached the empty label.
+// v4: cached body now carries `goalInferred` (S1-5 / AA-84) — the body shape
+// changed, so bump to invalidate v3 rows that lack the flag.
+// v5: S2-1 — goal contributor/category values now use the latest lifetime
+// snapshot per post (not SUM across dated cumulative rows), so the "what
+// contributed" numbers change. Bump invalidates stale v4 bodies.
+// v6: S2-3 — period windows now computed in the tenant's business timezone
+// (lead-gen received_at instant; content_growth/product_sales/brand_awareness
+// account-daily windows as tenant-tz calendar dates), so which rows fall in the
+// current vs prior window shifts near the day boundary. Bump invalidates v5.
+// v7: S3-2 — insights_posts.content_type is now derived at sync (previously
+// always NULL outside the demo seed), so goal category buckets shift from an
+// all-"other" cache row to real named buckets on the next fetch. Bump
+// invalidates stale v6 bodies.
+// v8: AA-151 — goal confirmation now follows persisted explicit/inferred
+// provenance instead of treating an unmatched explicit onboarding label as a
+// guess. Bump invalidates v7 bodies that cached the old inferred flag.
+// v9: AA-115 / S6-2 — a confidently backfilled business_profiles.goal_type is
+// now authoritative, so a tenant whose free-text goal maps unambiguously stops
+// rendering the "Goal inferred — confirm" chip. The goal itself is unchanged by
+// construction (the backfill shares its keyword families with this read path),
+// but `goalInferred` in the cached body flips for those tenants. Bump
+// invalidates v8 bodies that cached the pre-backfill flag.
+// v10: S4-2 — product_sales saves now come from the POST table (the account
+// column had no writer and read 0 for every tenant), brand_awareness reach is a
+// real column rather than a views proxy, and the profile-visits secondary is
+// NULL instead of a fabricated 0 so the UI omits that line. Bump invalidates v9
+// bodies that cached the zeros.
+const TEMPLATE_VERSION = 'goal-template-v10';
+const CACHE_TTL_BASE_MS     = 60 * 60 * 1000;
+
+const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
+
+function isValidPeriod(p: string | null): p is NarrativePeriod {
+  return p != null && VALID_PERIODS.has(p);
+}
+
+function inputHash(tenantId: number, period: string, platform: string): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${tenantId}|${period}|${platform}|${TEMPLATE_VERSION}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+async function getCached(
+  client: PoolClient,
+  tenantId: number,
+  period: string,
+  platform: string,
+  ttlMs:    number,
+): Promise<{ body: Record<string, unknown>; generatedAt: Date } | null> {
+  const res = await client.query<{
+    body: Record<string, unknown>;
+    generated_at: Date;
+    model: string;
+  }>(
+    `SELECT body, generated_at, model
+     FROM insights_narratives
+     WHERE tenant_id   = $1
+       AND period      = $2
+       AND platform    = $3
+       AND section_key = 'goal'
+     LIMIT 1`,
+    [tenantId, period, platform],
+  );
+  if (res.rows.length === 0) return null;
+  const row   = res.rows[0];
+  const ageMs = Date.now() - new Date(row.generated_at).getTime();
+  if (ageMs >= ttlMs || row.model !== TEMPLATE_VERSION) return null;
+  return { body: row.body, generatedAt: row.generated_at };
+}
+
+async function upsert(
+  client: PoolClient,
+  tenantId: number,
+  period: string,
+  platform: string,
+  body: Record<string, unknown>,
+  hash: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO insights_narratives
+       (tenant_id, period, platform, section_key, body, prompt_version, model, input_hash, cost_cents, generated_at)
+     VALUES ($1, $2, $3, 'goal', $4, $5, $6, $7, 0, now())
+     ON CONFLICT (tenant_id, period, platform, section_key)
+     DO UPDATE SET
+       body           = EXCLUDED.body,
+       prompt_version = EXCLUDED.prompt_version,
+       model          = EXCLUDED.model,
+       input_hash     = EXCLUDED.input_hash,
+       cost_cents     = 0,
+       generated_at   = now()`,
+    [tenantId, period, platform, JSON.stringify(body), TEMPLATE_VERSION, TEMPLATE_VERSION, hash],
+  );
+}
+
+export async function handleGetInsightsGoal(
+  req: Request,
+  tenantContextLoader?: TenantContextLoader,
+): Promise<Response> {
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
+  if ('response' in tenantResult) return tenantResult.response;
+
+  const { searchParams } = new URL(req.url);
+  const periodParam   = searchParams.get('period');
+  const platformParam = (searchParams.get('platform') || 'all').toLowerCase();
+  const force         = searchParams.get('force') === 'true';
+
+  if (!isValidPeriod(periodParam)) {
+    return NextResponse.json(
+      { error: 'Invalid period. Use: week | 30day | 90day' },
+      { status: 400 },
+    );
+  }
+
+  const tenantId = Number(tenantResult.tenantContext.tenantId);
+  const period   = periodParam;
+  const platform = platformParam;
+
+  // AA-122: one key for both the jittered expiry and the singleflight,
+  // so a section's staleness and its in-flight build always agree.
+  const cacheKey = inputHash(tenantId, period, platform);
+  const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
+  // AA-120: bound the forced cache bypass BEFORE the pooled client is acquired
+  // below. Past that point a throttled request already holds the very resource
+  // the throttle exists to protect. (Deliberately does not name the connect
+  // call: tests/insights-cache-policy.test.ts counts that literal in source.)
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'goal');
+  if (throttled) return throttled;
+
+  const client = await pool.connect();
+  try {
+    if (!force) {
+      const cached = await getCached(client, tenantId, period, platform, ttlMs);
+      if (cached) {
+        return NextResponse.json({
+          status:       'ok',
+          platform,
+          period,
+          cached:       true,
+          generated_at: cached.generatedAt,
+          ...cached.body,
+        });
+      }
+    }
+
+    const snapshot = await buildInsightsSectionOnce(cacheKey, () => buildGoalSnapshot(tenantId, period, platform, client));
+
+    if (!snapshot) {
+      return NextResponse.json({ status: 'no_goal' });
+    }
+
+    const ariesLine = buildGoalText(snapshot);
+    const hash      = cacheKey;
+
+    const body: Record<string, unknown> = {
+      goal:            snapshot.goal,
+      goalLabel:       snapshot.goalLabel,
+      ariesLine,
+      metricValue:     snapshot.metricValue,
+      metricValuePrev: snapshot.metricValuePrev,
+      metricLabel:     snapshot.metricLabel,
+      metricDelta:     snapshot.metricDelta,
+      secondaryValue:  snapshot.secondaryValue,
+      secondaryLabel:  snapshot.secondaryLabel,
+      contributors:    snapshot.contributors,
+      categories:      snapshot.categories,
+      hasData:         snapshot.hasData,
+      goalInferred:    snapshot.goalInferred,
+    };
+
+    await upsert(client, tenantId, period, platform, body, hash);
+
+    return NextResponse.json({
+      status:       'ok',
+      platform,
+      period,
+      cached:       false,
+      generated_at: new Date(),
+      ...body,
+    });
+  } finally {
+    client.release();
+  }
+}

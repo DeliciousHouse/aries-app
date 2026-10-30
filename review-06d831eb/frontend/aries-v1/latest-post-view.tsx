@@ -1,0 +1,58 @@
+'use client';
+
+import { useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+
+import { useRuntimePosts } from '@/hooks/use-runtime-social-content';
+
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
+import { EmptyStatePanel } from './components';
+
+export default function AriesLatestPostView(props: {
+  view: 'brand' | 'strategy' | 'creative' | 'publish';
+  title: string;
+  description: string;
+}) {
+  const router = useRouter();
+  const campaigns = useRuntimePosts({ autoLoad: true });
+  const latestCampaign = campaigns.data?.posts?.[0] ?? null;
+
+  useEffect(() => {
+    if (!latestCampaign) {
+      return;
+    }
+    router.replace(`/dashboard/social-content/${encodeURIComponent(latestCampaign.id)}?view=${props.view}`);
+  }, [latestCampaign, props.view, router]);
+
+  if (campaigns.isLoading) {
+    return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading post workspace...</div>;
+  }
+
+  if (campaigns.error) {
+    return (
+      <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+        {customerSafeUiErrorMessage(campaigns.error.message, 'The latest post view is not available right now.')}
+      </div>
+    );
+  }
+
+  if (!latestCampaign) {
+    return (
+      <EmptyStatePanel
+        title={props.title}
+        description={props.description}
+        action={
+          <Link
+            href="/dashboard/social-content/new"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition-colors"
+          >
+            New Social Content
+          </Link>
+        }
+      />
+    );
+  }
+
+  return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Opening the latest post...</div>;
+}

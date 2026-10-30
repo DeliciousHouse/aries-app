@@ -1,0 +1,60 @@
+-- 20260814000000_drop_insights_llm_calls.sql
+--
+-- AA-129 item 12: drop the dead `insights_llm_calls` table.
+--
+-- THIS FILE IS A RECORD, NOT THE DELIVERY PATH. migrations/-only files do NOT
+-- run in prod — scripts/init-db.js is the schema applied at container start
+-- (see migrations/20260604000000_marketing_schedule.sql, and
+-- scripts/release/apply-schema-with-worker-restore.sh, which runs exactly that
+-- file). The drop that actually executes is the guarded DO block in
+-- scripts/init-db.js; this mirrors it so the schema change is recorded under
+-- migrations/ like every sibling change.
+--
+-- The first version of this ticket shipped ONLY this file and claimed the table
+-- was dropped. It was not: fresh databases simply stopped getting it, while the
+-- one database that had it kept it. If you are reading this file to find out
+-- what runs, read init-db.js instead.
+--
+-- WHAT IS VERIFIED, AND WHAT IS NOT. Precision matters here because an earlier
+-- version of this file asserted things it had not measured, and review rejected
+-- it on exactly that basis.
+--
+-- Verified, from the repository:
+--   * The table was created as a per-LLM-call cost audit log ("every LLM call
+--     with cost, tokens, and outcome") and no code reads or writes it. A
+--     repo-wide search finds it only in the two sanctioned removal sites and in
+--     documentation — zero lines of application code. This is guarded by a test
+--     (tests/insights-backlog-10-12.test.ts), so it stays true.
+--   * Its intended job is done by `task_execution_log` (AA-159), which records
+--     engine, model hint, tokens, cost and duration for real work, with the
+--     rollup/retention layer (AA-161) on top.
+--
+-- NOT verified, and deliberately not claimed:
+--   * How many rows this table holds in production, or has ever held. Nobody
+--     has queried it. "No writer exists, therefore it is empty" is a sound
+--     inference about the code, not a measurement of a database, and the two
+--     are not interchangeable — a row could have arrived from a migration, a
+--     manual session, an older revision of the app, or a path nobody
+--     remembers.
+--
+-- THE DROP DOES NOT DEPEND ON THAT INFERENCE. The executed block in
+-- scripts/init-db.js counts rows first: it drops only an EMPTY table, and
+-- leaves a non-empty one in place with a loud WARNING for a human to inspect.
+-- So the argument for removing this table is "nothing uses it", which is
+-- checkable; the safety of removing it does not rest on any belief about its
+-- contents, which is not.
+--
+-- `IF EXISTS` here keeps this statement idempotent and safe on a database that
+-- never ran the original CREATE (the table was `CREATE TABLE IF NOT EXISTS`, so
+-- its presence varies by how old the deployment is). Note this mirrored
+-- statement is UNGUARDED — it would drop a non-empty table. That is tolerable
+-- only because this file does not execute; if you ever run it by hand, check
+-- the row count first, exactly as init-db.js does.
+--
+-- Reversal, if ever needed, is the CREATE TABLE block removed from
+-- scripts/init-db.js in the same commit — recoverable from git history. Rows,
+-- if any turn out to exist, are NOT recoverable from git; that is the reason
+-- the executed path refuses to drop them.
+
+DROP TABLE IF EXISTS insights_llm_calls;
+-- (idx_insights_llm_calls_tenant_called_at is dropped with its table)

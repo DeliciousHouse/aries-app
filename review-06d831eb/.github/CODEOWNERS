@@ -1,0 +1,44 @@
+# CODEOWNERS — GitHub requests reviews from owners when a PR touches their paths.
+#
+# NOTE: the @DeliciousHouse/aries-* teams below must be created in GitHub
+# (Org -> Teams) or replaced with individual @usernames before the
+# "Require review from Code Owners" branch-protection rule is enabled.
+# Until the teams exist, GitHub treats these owners as unresolved.
+
+# Default ownership
+* @DeliciousHouse/aries-maintainers
+
+# GitHub workflows and deployment
+.github/workflows/* @DeliciousHouse/aries-security
+Dockerfile @DeliciousHouse/aries-platform
+docker-compose*.yml @DeliciousHouse/aries-platform
+DOCKER.md @DeliciousHouse/aries-platform
+PRODUCTION_HANDOFF.md @DeliciousHouse/aries-platform
+
+# Auth, OAuth, sessions, tenant boundaries
+app/api/auth/** @DeliciousHouse/aries-security
+app/api/oauth/** @DeliciousHouse/aries-security
+app/api/internal/** @DeliciousHouse/aries-security
+backend/auth/** @DeliciousHouse/aries-security
+backend/integrations/** @DeliciousHouse/aries-security
+backend/execution/** @DeliciousHouse/aries-security
+lib/db/** @DeliciousHouse/aries-security
+lib/auth/** @DeliciousHouse/aries-security
+
+# Publishing and external platform APIs
+app/api/publish/** @DeliciousHouse/aries-security
+backend/publish/** @DeliciousHouse/aries-security
+backend/social-content/** @DeliciousHouse/aries-engineering
+
+# Frontend
+app/** @DeliciousHouse/aries-frontend
+components/** @DeliciousHouse/aries-frontend
+src/** @DeliciousHouse/aries-frontend
+
+# Tests and verification
+tests/** @DeliciousHouse/aries-engineering
+scripts/** @DeliciousHouse/aries-platform
+
+# Docs
+README.md @DeliciousHouse/aries-maintainers
+docs/** @DeliciousHouse/aries-maintainers

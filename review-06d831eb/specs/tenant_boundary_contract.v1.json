@@ -1,0 +1,178 @@
+{
+  "artifact_name": "tenant_boundary_contract",
+  "artifact_type": "isolation_contract",
+  "schema_version": "1.0.0",
+  "purpose": "Define fail-closed tenant isolation boundaries for data, storage, execution, and observability within the existing bootstrap artifact model.",
+  "default_decision": "deny",
+  "required_context": [
+    "request_id",
+    "actor.actor_id",
+    "actor.actor_type",
+    "actor.tenant_id",
+    "resource.resource_id",
+    "resource.resource_type",
+    "resource.tenant_id",
+    "action",
+    "environment"
+  ],
+  "decision_outcomes": [
+    "allow",
+    "deny"
+  ],
+  "tenant_id_constraints": {
+    "type": "string",
+    "pattern": "^[a-z0-9][a-z0-9-]{1,61}$",
+    "description": "Aligned with existing tenant_id constraints in runtime schemas."
+  },
+  "resource_scopes": [
+    {
+      "scope": "tenant_data",
+      "description": "Structured/unstructured content owned by exactly one tenant.",
+      "ownership_model": "single_tenant",
+      "required_fields": [
+        "tenant_id"
+      ]
+    },
+    {
+      "scope": "tenant_artifacts",
+      "description": "Generated files and intermediate outputs under tenant-local roots.",
+      "ownership_model": "single_tenant",
+      "required_fields": [
+        "tenant_id",
+        "artifact_path"
+      ]
+    },
+    {
+      "scope": "tenant_runtime_state",
+      "description": "State entries tracking lifecycle for a tenant and its jobs.",
+      "ownership_model": "single_tenant",
+      "required_fields": [
+        "tenant_id",
+        "state"
+      ]
+    },
+    {
+      "scope": "shared_control_plane",
+      "description": "Platform-level references that must never include tenant content payloads.",
+      "ownership_model": "shared_non_tenant_payload",
+      "required_fields": [
+        "resource_class"
+      ]
+    }
+  ],
+  "boundary_invariants": [
+    {
+      "id": "TBC-INV-001",
+      "rule": "For scopes tenant_data, tenant_artifacts, and tenant_runtime_state, actor.tenant_id MUST equal resource.tenant_id for any allow decision.",
+      "deterministic_test": "Given decision=allow and resource.scope in protected set, assert strict equality actor.tenant_id === resource.tenant_id."
+    },
+    {
+      "id": "TBC-INV-002",
+      "rule": "Missing, null, or malformed tenant identifiers MUST result in deny.",
+      "deterministic_test": "If actor.tenant_id or resource.tenant_id absent, null, empty, or regex-invalid, assert decision=deny."
+    },
+    {
+      "id": "TBC-INV-003",
+      "rule": "Any unknown action, unknown resource_type, or unknown scope MUST result in deny.",
+      "deterministic_test": "If input enum value not recognized by contract, assert decision=deny and reason_code=UNKNOWN_CONTEXT."
+    },
+    {
+      "id": "TBC-INV-004",
+      "rule": "Cross-tenant access cannot be implicitly elevated through shared_control_plane references.",
+      "deterministic_test": "If resource.scope=shared_control_plane and payload contains tenant-owned fields, assert decision=deny."
+    },
+    {
+      "id": "TBC-INV-005",
+      "rule": "List/query responses MUST be tenant-filtered before decision allow is emitted.",
+      "deterministic_test": "For list/read_many actions with allow, assert effective_filter.tenant_id equals actor.tenant_id."
+    },
+    {
+      "id": "TBC-INV-006",
+      "rule": "Audit record MUST be generated for every deny and every cross-tenant request attempt.",
+      "deterministic_test": "Given any deny OR actor.tenant_id != resource.tenant_id, assert audit.required=true."
+    }
+  ],
+  "deny_reason_codes": [
+    "DEFAULT_DENY",
+    "MISSING_CONTEXT",
+    "INVALID_TENANT_ID",
+    "TENANT_MISMATCH",
+    "UNKNOWN_CONTEXT",
+    "RESOURCE_SCOPE_VIOLATION",
+    "PATH_BOUNDARY_VIOLATION",
+    "POLICY_NOT_SATISFIED"
+  ],
+  "path_boundary_rules": [
+    {
+      "id": "TBC-PATH-001",
+      "rule": "All tenant artifact paths MUST be relative and anchored to tenant-local roots.",
+      "allowed_roots": [
+        "generated/draft/{tenant_id}/",
+        "generated/validated/{tenant_id}/"
+      ],
+      "forbidden_patterns": [
+        "^/",
+        "^[A-Za-z]:\\\\",
+        "(^|/)\\.\\.(/|$)"
+      ]
+    },
+    {
+      "id": "TBC-PATH-002",
+      "rule": "Paths referencing another tenant identifier MUST be denied.",
+      "deterministic_test": "Resolve path tenant token; if token exists and token != actor.tenant_id then deny with TENANT_MISMATCH."
+    }
+  ],
+  "minimum_audit_record": {
+    "required": true,
+    "required_fields": [
+      "request_id",
+      "timestamp",
+      "actor_id",
+      "actor_tenant_id",
+      "resource_id",
+      "resource_tenant_id",
+      "action",
+      "decision",
+      "reason_code"
+    ],
+    "additionalProperties": false
+  },
+  "acceptance_tests": [
+    {
+      "id": "TBC-AT-001",
+      "name": "Fail-closed default deny",
+      "procedure": "Submit request with complete context but no matching allow condition.",
+      "expected_result": "decision=deny, reason_code=DEFAULT_DENY"
+    },
+    {
+      "id": "TBC-AT-002",
+      "name": "Tenant equality required",
+      "procedure": "Submit protected resource request where actor.tenant_id != resource.tenant_id.",
+      "expected_result": "decision=deny, reason_code=TENANT_MISMATCH"
+    },
+    {
+      "id": "TBC-AT-003",
+      "name": "Malformed tenant id denied",
+      "procedure": "Use actor.tenant_id containing invalid characters.",
+      "expected_result": "decision=deny, reason_code=INVALID_TENANT_ID"
+    },
+    {
+      "id": "TBC-AT-004",
+      "name": "Unknown action denied",
+      "procedure": "Use action not defined by policy context.",
+      "expected_result": "decision=deny, reason_code=UNKNOWN_CONTEXT"
+    },
+    {
+      "id": "TBC-AT-005",
+      "name": "Path escape denied",
+      "procedure": "Use artifact_path with ../ or absolute prefix.",
+      "expected_result": "decision=deny, reason_code=PATH_BOUNDARY_VIOLATION"
+    },
+    {
+      "id": "TBC-AT-006",
+      "name": "Deny events audited",
+      "procedure": "Trigger any deny decision and verify audit payload structure.",
+      "expected_result": "Audit record present with all minimum_audit_record.required_fields"
+    }
+  ]
+}

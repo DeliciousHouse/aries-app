@@ -1,0 +1,10 @@
+{
+  "_fixture_note": "SYNTHETIC — see doctor-all-fresh.json. Models one expired cookie session (twitter) alongside healthy channels, plus a channel the probe does not track (github) which must be ignored. The twitter detail deliberately carries a cookie-shaped value so the redaction path is exercised: it must NOT appear in the state file.",
+  "channels": [
+    { "name": "twitter", "status": "login_required", "detail": "auth_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa expired; re-export cookies" },
+    { "name": "reddit", "status": "ok", "detail": "session ok" },
+    { "name": "instagram", "status": "ok", "detail": "logged in" },
+    { "name": "facebook", "status": "ok", "detail": "logged in" },
+    { "name": "github", "status": "ok", "detail": "gh auth ok" }
+  ]
+}

@@ -1,0 +1,70 @@
+import type { PoolClient } from 'pg';
+
+import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
+import type { TenantContext } from '@/lib/tenant-context';
+
+import { buildOnboardingCandidatesFromProfile } from './build-onboarding-candidates';
+import { isHonchoEnabled } from './honcho-env';
+import { TenantMemoryClient } from './honcho-client';
+import { HonchoHttpTransport } from './honcho-http-transport';
+import { seedOnboardingMemory } from './onboarding-seed';
+
+type MinimalCtx = Pick<TenantContext, 'tenantId' | 'tenantSlug' | 'userId' | 'role'>;
+
+/** Read-only readiness check; db:init owns schema changes. */
+export async function ensureOnboardingMemorySeedColumn(client: Pick<PoolClient, 'query'>): Promise<void> {
+  await client.query('SELECT onboarding_memory_seeded_at FROM organizations LIMIT 0', []);
+}
+
+/**
+ * After dashboard onboarding gate passes, promote first-party profile facts into
+ * Honcho tenant memory once per organization (gated by HONCHO_ENABLED).
+ */
+export async function maybeSeedOnboardingMemoryForTenant(
+  client: PoolClient,
+  tenantCtx: MinimalCtx,
+): Promise<void> {
+  if (!isHonchoEnabled(process.env)) {
+    return;
+  }
+
+  const orgId = Number(tenantCtx.tenantId);
+  if (!Number.isFinite(orgId) || orgId <= 0) {
+    return;
+  }
+
+  await ensureOnboardingMemorySeedColumn(client);
+
+  const claim = await client.query(
+    `
+    UPDATE organizations
+    SET onboarding_memory_seeded_at = NOW()
+    WHERE id = $1 AND onboarding_memory_seeded_at IS NULL
+    RETURNING id
+    `,
+    [orgId],
+  );
+  if (claim.rowCount === 0) {
+    return;
+  }
+
+  const resolved = await getBusinessProfileWithDiagnostics(client, tenantCtx.tenantId);
+  const candidates = buildOnboardingCandidatesFromProfile(resolved.profile);
+
+  if (candidates.length === 0) {
+    return;
+  }
+
+  const memClient = new TenantMemoryClient(new HonchoHttpTransport());
+  try {
+    await memClient.ensureWorkspace(tenantCtx);
+    await seedOnboardingMemory(
+      tenantCtx,
+      { runId: `org-${orgId}`, candidates },
+      memClient,
+    );
+  } catch (err) {
+    await client.query(`UPDATE organizations SET onboarding_memory_seeded_at = NULL WHERE id = $1`, [orgId]);
+    console.error('[onboarding-memory-seed] Honcho seed failed', err);
+  }
+}

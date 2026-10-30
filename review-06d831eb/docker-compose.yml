@@ -1,0 +1,1193 @@
+services:
+  aries-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ARIES_NODE_UID: 1004
+        ARIES_NODE_GID: 1004
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      ARIES_PROCESS_MANAGER: ${ARIES_PROCESS_MANAGER:-cluster}
+      ARIES_WEB_CONCURRENCY: ${ARIES_WEB_CONCURRENCY:-2}
+      ARIES_WORKER_MAX_RESTARTS: ${ARIES_WORKER_MAX_RESTARTS:-5}
+      # Optional libpq session options used by the deploy's one-shot init-db
+      # container to bound DDL lock/statement waits. Empty during normal app runs.
+      PGOPTIONS: ${PGOPTIONS:-}
+      # Deploy applies schema in a bounded one-shot before app recreation, then
+      # sets this to 1 so start-runtime does not repeat init-db unbounded.
+      ARIES_SKIP_DB_INIT: ${ARIES_SKIP_DB_INIT:-0}
+      PORT: ${PORT:-3000}
+      HOST: 0.0.0.0
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ARIES_EXECUTION_PROVIDER: ${ARIES_EXECUTION_PROVIDER:-hermes}
+      ARIES_MARKETING_EXECUTION_PROVIDER: ${ARIES_MARKETING_EXECUTION_PROVIDER:-hermes}
+      HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
+      HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+      HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}
+      # Fail container health when the configured network Hermes endpoint is
+      # unavailable. Self-host installs without Hermes explicitly set this off.
+      ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED: ${ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED:-1}
+      # Fleet metrics and alerts default to customer production tenants only.
+      # Explicitly add test/archived here only for a bounded diagnostic.
+      ARIES_FLEET_TENANT_KINDS: ${ARIES_FLEET_TENANT_KINDS:-production}
+      # Phase B three-profile routing. Strategy/content retain their production
+      # cutover defaults; research stays on the shared gateway until its URL and
+      # key are explicitly configured together.
+      #   research   -> aries-research          (port 8651)
+      #   strategy   -> aries-strategist        (port 8654)
+      #   publish    -> aries-strategist        (port 8654)
+      #   production -> aries-content-generator (port 8655)
+      #
+      # RESEARCH CUTOVER — two deploy-time preconditions, both blocking:
+      #  1. HERMES_RESEARCH_API_SERVER_KEY MUST be set alongside this URL. It
+      #     falls back to HERMES_API_SERVER_KEY, which is the *default* (8642)
+      #     gateway's key, so the aries-research gateway 401s every research
+      #     submission if the per-profile key is missing. The app logs
+      #     "[hermes] GATEWAY AUTH MISCONFIGURED" at submission time when this
+      #     pair is incoherent (see describeProfileGatewayKeyFallback).
+      #  2. The aries-research gateway ships bound to 127.0.0.1, which
+      #     host.docker.internal cannot reach. Rebind it (docker bridge IP
+      #     preferred over 0.0.0.0) before opting in to port 8651.
+      # Blank or unset falls back to HERMES_GATEWAY_URL.
+      HERMES_RESEARCH_GATEWAY_URL: ${HERMES_RESEARCH_GATEWAY_URL:-}
+      HERMES_RESEARCH_API_SERVER_KEY: ${HERMES_RESEARCH_API_SERVER_KEY:-}
+      HERMES_STRATEGIST_GATEWAY_URL: ${HERMES_STRATEGIST_GATEWAY_URL:-http://host.docker.internal:8654}
+      HERMES_STRATEGIST_API_SERVER_KEY: ${HERMES_STRATEGIST_API_SERVER_KEY:-}
+      HERMES_CONTENT_GATEWAY_URL: ${HERMES_CONTENT_GATEWAY_URL:-http://host.docker.internal:8655}
+      HERMES_CONTENT_API_SERVER_KEY: ${HERMES_CONTENT_API_SERVER_KEY:-}
+      # 1200s (20 min): tuned to the actual production-stage cost on real
+      # tenants. Observed end-to-end durations on aries.sugarandleather.com
+      # one-off campaigns (mkt_3e04f5d1 production run on 2026-05-27):
+      #   - research: ~2 min
+      #   - strategy: ~1 min
+      #   - production: 10 min 39 s (7 posts, 7 generated images)
+      # The previous 600s budget fired 38 s BEFORE Hermes returned the
+      # completed run for that campaign, recording a spurious
+      # `hermes_gateway_timeout` failure even though the content package
+      # (including all 7 cached image files) was sitting ready in Hermes.
+      # The 120_000 code-default in backend/marketing/ports/hermes.ts is for
+      # synthetic happy-path tests and is unsuitable for real tenants. This
+      # compose value overrides the code default for the aries-app service
+      # (the scheduled-posts-worker doesn't talk to Hermes directly so it
+      # doesn't need this knob). Override via env if a tenant routinely runs
+      # >20 min (e.g. video render workloads).
+      HERMES_RUN_TIMEOUT_MS: ${HERMES_RUN_TIMEOUT_MS:-1200000}
+      HERMES_POLL_INTERVAL_MS: ${HERMES_POLL_INTERVAL_MS:-}
+      ARIES_REAPER_ENABLED: ${ARIES_REAPER_ENABLED:-1}
+      ARIES_REAPER_INTERVAL_MS: ${ARIES_REAPER_INTERVAL_MS:-300000}
+      # Durable Hermes run reconciler — replaces the unreliable in-process
+      # poll-bridge. start-runtime.mjs spawns scripts/hermes-reconciler-worker.ts
+      # as a sibling of the Next.js cluster (inherits /data, the HERMES_* gateways
+      # and the image-cache mount). Every interval it re-discovers in-flight
+      # marketing execution runs and ingests any Hermes has finished, via the same
+      # idempotent callback path the bridge used — but as a standing process, so
+      # it survives the request lifecycle that orphaned the bridge. Default ON; set
+      # ARIES_RECONCILER_ENABLED=0 to fall back to bridge-only delivery. The 60s
+      # interval beats the reaper's tightest stage threshold (strategy = 5 min).
+      ARIES_RECONCILER_ENABLED: ${ARIES_RECONCILER_ENABLED:-1}
+      ARIES_RECONCILER_INTERVAL_MS: ${ARIES_RECONCILER_INTERVAL_MS:-60000}
+      ARIES_KANBAN_GC_ENABLED: ${ARIES_KANBAN_GC_ENABLED:-1}
+      # Temporary compatibility path for the in-container `hermes kanban gc`
+      # worker. Disable after the sidecar cutover moves maintenance out of Aries.
+      ARIES_HERMES_CLI_COMPAT_ENABLED: ${ARIES_HERMES_CLI_COMPAT_ENABLED:-1}
+      ARIES_KANBAN_GC_INTERVAL_MS: ${ARIES_KANBAN_GC_INTERVAL_MS:-86400000}
+      ARIES_KANBAN_GC_RETENTION_DAYS: ${ARIES_KANBAN_GC_RETENTION_DAYS:-7}
+      ARIES_AUTO_APPROVE_MARKETING_PIPELINE: ${ARIES_AUTO_APPROVE_MARKETING_PIPELINE:-1}
+      # Safe half of autonomous mode: auto-schedule a job's already-approved posts
+      # to BOTH platforms once the publish stage completes, WITHOUT auto-approving
+      # the gate (a human still clicks approve). Default OFF — this is the
+      # human-in-the-loop alternative to ARIES_AUTO_APPROVE_MARKETING_PIPELINE.
+      ARIES_AUTOSCHEDULE_ON_APPROVAL: ${ARIES_AUTOSCHEDULE_ON_APPROVAL:-0}
+      # Synthesize reviewable posts on the publish-SKIP path (weekly jobs that
+      # complete with publishingRequested=false). When ON, such a job's generated
+      # copy lands as `approved` posts that surface in the dashboard with a manual
+      # "Publish now" button — WITHOUT auto-scheduling/auto-publishing (the human
+      # chooses). When OFF (default) the publish-skip path is byte-identical to
+      # today (images ingested, no posts). Fixes "generated images but nowhere to
+      # click to publish."
+      ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED: ${ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED:-0}
+      # Owner-gated auto-publish. Auto-scheduling is unaffected (the calendar
+      # populates for every tenant); this decides whether a due row may actually
+      # be DISPATCHED, or is held for a human to publish. When ON, a tenant
+      # publishes autonomously only if it has opted in via
+      # marketing_auto_publish_settings (tenant_admin, /api/marketing/auto-publish).
+      # Default OFF — ships dark, every row dispatches exactly as before.
+      # MUST be set on aries-scheduled-posts-worker too: the admit predicate runs
+      # in that worker's SQL, not here.
+      ARIES_AUTO_PUBLISH_GATE_ENABLED: ${ARIES_AUTO_PUBLISH_GATE_ENABLED:-0}
+      # Unattended-publish guards on the scheduled-dispatch route (2026-07-13
+      # duplicate-post incident). Duplicate-caption window: a post whose exact
+      # trimmed caption already published to the same tenant+platform within N
+      # days is terminally blocked (0 disables). Same-platform spacing: a
+      # publish younger than M minutes on the same tenant+platform defers the
+      # next one (retryable; 0 disables) — makes an N-posts-at-one-instant
+      # burst structurally impossible at the publish boundary.
+      ARIES_DUPLICATE_CAPTION_WINDOW_DAYS: ${ARIES_DUPLICATE_CAPTION_WINDOW_DAYS:-14}
+      ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES: ${ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES:-30}
+      # Weekly cross-post fan-out: additionally synthesize x/linkedin/reddit posts
+      # (platform-adapted captions, same feed image) for each FB/IG feed image,
+      # per platform whose ARIES_<P>_ENABLED flag is ON and that the tenant has
+      # connected. Default ON: the fan-out is inert unless a per-platform flag is
+      # ON *and* an account is connected, so the effective distribution decision
+      # lives in ARIES_X_ENABLED / ARIES_LINKEDIN_ENABLED / ARIES_REDDIT_ENABLED
+      # (all default false) rather than in this master switch. Go-live per
+      # platform also needs COMPOSIO_<P>_PUBLISH_POST_ACTION. Reddit is skipped
+      # automatically when COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset.
+      ARIES_WEEKLY_CROSSPOST_ENABLED: ${ARIES_WEEKLY_CROSSPOST_ENABLED:-1}
+      # AA-217: let ANY connected publishable platform unblock weekly generation
+      # and publishing, not just Meta. OFF => the publish gate counts Meta only
+      # and synthesis always takes the Meta-primary path (byte-identical to
+      # today, including operator copy, which stays Meta-specific while this is
+      # off). ON => the gate counts every platform in publishablePlatforms(), and
+      # a tenant with NO Meta connection but a connected x/linkedin/reddit
+      # channel synthesizes its weekly feed posts directly onto those platforms
+      # (same captions/keys/assets the crosspost fan-out produces) instead of
+      # dying at publish with needs_connection. A tenant with zero connected
+      # channels stays blocked either way. Default OFF: a merge auto-deploys
+      # dark; enabling is a host .env change + `docker compose up -d aries-app`.
+      #
+      # A platform only counts toward this gate when it is fully publishable:
+      # rollout flag ON *and* COMPOSIO_<P>_PUBLISH_POST_ACTION set (plus
+      # COMPOSIO_REDDIT_TARGET_SUBREDDIT for reddit). Without the slug every
+      # dispatch throws ComposioCapabilityMissingError, so counting the platform
+      # would admit a tenant into a week of posts that all fail terminally.
+      ARIES_ANY_PLATFORM_PUBLISH_ENABLED: ${ARIES_ANY_PLATFORM_PUBLISH_ENABLED:-0}
+      # AA-218 native content. SEPARATE from the flag above on purpose:
+      # ANY_PLATFORM decides eligibility (does a non-Meta connection count as a
+      # publishable channel), this one decides voice (are the strategy /
+      # production / publish PROMPTS told the tenant's real platforms). Both off
+      # is legacy; ANY_PLATFORM alone gives right-platform, Meta-flavoured copy.
+      # TENANT-SCOPABLE: 0/unset = off, 1 = every tenant, or a CSV of tenant IDs
+      # (e.g. `70`) so a canary is genuinely dark for everyone else.
+      ARIES_PLATFORM_NATIVE_CONTENT_ENABLED: ${ARIES_PLATFORM_NATIVE_CONTENT_ENABLED:-0}
+      # AA-235. Route a job whose persisted request carries no `jobType` by its
+      # document-level `job_type` instead — the state every SCHEDULED weekly run
+      # is in, because only the dashboard create route ever duplicated jobType
+      # into the payload. Without it those runs submit the generic
+      # brand-campaign prompt (five identifier lines, no brand kit, no scope),
+      # the agent refuses for lack of inputs, and on 2026-08-12 that refusal
+      # reached live brand accounts as seven posts.
+      # Turning this ON moves scheduled weekly runs onto the per-stage weekly
+      # workflow, request builder and gateways for the first time — the same
+      # path the one-off reel companion already runs in production, but a new
+      # tenant population. TENANT-SCOPABLE: 0/unset = off, 1 = every tenant, or
+      # a CSV of tenant IDs so a canary is genuinely dark for everyone else.
+      # Job creation happens in THIS service (the weekly-trigger worker only
+      # POSTs to /api/internal/marketing/weekly-trigger), so this is the only
+      # service that needs it.
+      ARIES_PER_STAGE_JOB_TYPE_FALLBACK_ENABLED: ${ARIES_PER_STAGE_JOB_TYPE_FALLBACK_ENABLED:-0}
+      # AI-derived per-platform posting times: every content-generation start
+      # re-derives WHEN posts publish per platform — from the tenant's own
+      # insights engagement once >= MIN_ANALYTICS_POSTS posts have metrics, else
+      # from a Hermes research run over the business profile's competitor. The
+      # auto-schedule paths prefer the derived rows over the hardcoded
+      # PLATFORM_POSTING_DEFAULTS, fail-open. Default OFF => scheduling is
+      # byte-identical to today (no derivation runs, no reads).
+      ARIES_AI_POSTING_TIMES_ENABLED: ${ARIES_AI_POSTING_TIMES_ENABLED:-0}
+      # Analytics day blend (kill switch, default ON). On the strategist path,
+      # when a platform's derived row is source='analytics' and ranks >= 2 days
+      # and the strategist's recommended_day is NOT among them, the post is
+      # nudged to the nearest ranked day — max 2 calendar days, feed surface
+      # only, abandoned if the target slot is already claimed by a sibling's
+      # explicit strategist day. Competitor-sourced rows never move a day. Set
+      # to 0 to revert to "strategist day always wins" WITHOUT losing the
+      # hour/minute override (which is what turning off AI posting times would
+      # cost). Inert while ARIES_AI_POSTING_TIMES_ENABLED=0.
+      ARIES_SCHEDULE_DAY_BLEND_ENABLED: ${ARIES_SCHEDULE_DAY_BLEND_ENABLED:-1}
+      # Weekly performance context: injects the tenant's own last-28-day content
+      # performance (top 3 + bottom 3 posts by engagement, 4-week follower
+      # trend) into the STRATEGY prompt, plus a 2-line condensed version into
+      # the weekly research request. Default ON because it is additive and
+      # fail-open — a tenant with no insights_* rows gets no block at all, and a
+      # query failure degrades to no block. Set to 0 to restore byte-identical
+      # prompts. Only aries-app submits Hermes runs, so no sidecar needs it.
+      ARIES_PERF_CONTEXT_ENABLED: ${ARIES_PERF_CONTEXT_ENABLED:-1}
+      # Minimum measured own-posts per platform before the analytics source
+      # replaces the competitor source (default 8).
+      ARIES_POSTING_TIMES_MIN_ANALYTICS_POSTS: ${ARIES_POSTING_TIMES_MIN_ANALYTICS_POSTS:-8}
+      # Freshness window (minutes) that collapses rapid repeat generate-clicks
+      # onto one derivation; 0 = derive on every click (also disables the
+      # 2-minute cooldown floor the settings-card "Update times now" button
+      # otherwise honors).
+      ARIES_POSTING_TIMES_TTL_MINUTES: ${ARIES_POSTING_TIMES_TTL_MINUTES:-60}
+      # Optional model hint override for the competitor research run (default
+      # gemini/gemini-3-flash-preview, same as the other raw Hermes runs), plus
+      # its submit+poll session-key and timeout-ms overrides (default 90000) —
+      # mirrors the HERMES_BRAND_ANALYSIS_* wiring for the same idiom.
+      HERMES_POSTING_TIMES_MODEL: ${HERMES_POSTING_TIMES_MODEL:-}
+      HERMES_POSTING_TIMES_SESSION_KEY: ${HERMES_POSTING_TIMES_SESSION_KEY:-}
+      HERMES_POSTING_TIMES_TIMEOUT_MS: ${HERMES_POSTING_TIMES_TIMEOUT_MS:-}
+      # Stale-run reaper: how long a job may sit at an approval gate before it is
+      # reaped (default 7d). Long because a job awaiting a human is NOT stalled;
+      # the short per-stage thresholds would otherwise reap it at 5 min.
+      ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS: ${ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS:-604800000}
+      ARIES_BRAND_ENRICHMENT_ENABLED: ${ARIES_BRAND_ENRICHMENT_ENABLED:-1}
+      # Video / Reel / Story-video publishing rollout switch. Default OFF until
+      # Hermes emits media_type:"video" + per-asset video metadata (separate repo).
+      ARIES_VIDEO_PUBLISH_ENABLED: ${ARIES_VIDEO_PUBLISH_ENABLED:-0}
+      # Composite the real brand logo onto generated single-image feed creatives
+      # (+ drop the "draw a logo" brief instruction). Default OFF; needs the brand
+      # kit's materialized logo_file_path. Screenshot-verify before enabling.
+      ARIES_FEED_LOGO_COMPOSITE_ENABLED: ${ARIES_FEED_LOGO_COMPOSITE_ENABLED:-0}
+      # Per-tenant MARKETING LAYER: burn each tenant's own hook/value/CTA copy +
+      # logo + brand colors + a license-safe music bed onto generated reels so
+      # they read as ads, not abstract art. Default OFF (raw video, byte-identical
+      # to today); per-tenant when ON. Screenshot-verify before enabling.
+      ARIES_MARKETING_LAYER_ENABLED: ${ARIES_MARKETING_LAYER_ENABLED:-0}
+      # Weekly REEL companion: when a weekly_social_content job starts, also fire a
+      # standalone one-off video-only reel job (the eng-review separate-job design —
+      # a dedicated job avoids colliding on the weekly job's single production-stage
+      # slot). Default OFF; the clip only renders/publishes when ARIES_VIDEO_PUBLISH_
+      # ENABLED is also on. Idempotent per weekly job.
+      ARIES_WEEKLY_REEL_ENABLED: ${ARIES_WEEKLY_REEL_ENABLED:-0}
+      # Weekly recap report — Section 10 on /insights (S5-1; relocated off the
+      # retired standalone /dashboard/results page by AA-229/PR2b). Read-only:
+      # it reads publish state Aries already owns plus the shipped insights
+      # read model, writes nothing, and never fabricates an engagement ranking.
+      # Default OFF; OFF ⇒ Section 10 renders an empty "No recap available" state.
+      ARIES_WEEKLY_RESULTS_ENABLED: ${ARIES_WEEKLY_RESULTS_ENABLED:-0}
+      # ElevenLabs voiceover CAPABILITY GATE for reels: when ON (+ ELEVENLABS_API_KEY
+      # set), voiceover becomes a selectable reel-audio option. It no longer forces
+      # voiceover — the per-tenant Settings default / per-job override (reel audio
+      # mode: music | voiceover | both) decides what each reel carries. Default ON:
+      # safe because the global default mode is 'music', so no reel changes audio
+      # until a tenant explicitly opts into voiceover; a voiceover choice falls back
+      # to the music bed (never silent) when the key is absent or synthesis fails.
+      ARIES_REEL_VOICEOVER_ENABLED: ${ARIES_REEL_VOICEOVER_ENABLED:-1}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+      # First-post onboarding 3-variant board → taste profile rollout switch.
+      # Default OFF: onboarding stays byte-identical to today (single weekly job).
+      ARIES_ONBOARDING_VARIANT_BOARD_ENABLED: ${ARIES_ONBOARDING_VARIANT_BOARD_ENABLED:-0}
+      # Bias the weekly production image brief toward the learned per-tenant taste
+      # profile (marketing_taste_profile). Default OFF; brief is byte-identical
+      # until flipped + screenshot-verified.
+      ARIES_TASTE_BRIEF_INJECTION_ENABLED: ${ARIES_TASTE_BRIEF_INJECTION_ENABLED:-0}
+      # Learn taste from operator post edits on the userless weekly run (stamp a
+      # visual-style lens at synthesis; review-reject/regenerate/delete write a
+      # tenant-scoped taste signal). Default OFF. Needs the 20260609 taste-scope
+      # migration. Turn this ON first to accumulate signal, then the injection flag.
+      ARIES_POST_EDIT_TASTE_LEARNING_ENABLED: ${ARIES_POST_EDIT_TASTE_LEARNING_ENABLED:-0}
+      # Outbound Slack approval notifications (Phase 4 PR2 + per-tenant T3).
+      # Default OFF: the marketing callback path is byte-identical to today.
+      # Per-tenant Slack (Option A): each tenant connects their OWN Slack workspace
+      # + channel via OAuth, and the notifier resolves that tenant's token+channel
+      # at send time. SLACK_SINGLE_TENANT_CHANNEL + SLACK_BOT_TOKEN is the EXPLICIT
+      # single-tenant / self-host opt-in used only when a tenant has no Slack
+      # connection — never a silent global default (both must be set on purpose).
+      # This replaces the removed SLACK_NOTIFY_CHANNEL global path. This compose has
+      # NO env_file, so these reach the container only via the ${...} interpolation
+      # below. Best-effort, deduped per (job, stage); a Slack failure never breaks
+      # the pipeline. The Hermes reconciler runs INSIDE this container
+      # (start-runtime.mjs), so only the aries-app service needs these.
+      ARIES_SLACK_NOTIFICATIONS_ENABLED: ${ARIES_SLACK_NOTIFICATIONS_ENABLED:-0}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_SINGLE_TENANT_CHANNEL: ${SLACK_SINGLE_TENANT_CHANNEL:-}
+      # Per-tenant Slack OAuth app credentials (the connect + token-exchange flow,
+      # backend/integrations/callback.ts + oauth-authorize-urls.ts). One app we own,
+      # distributed unlisted; each tenant installs it. Empty by default.
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
+      # qa-defect #598 — native comment reply backend (POST
+      # /api/insights/comments/[commentId]/reply → Meta Graph reply). Default OFF;
+      # the route 404s while dark. Flip to 1 only after the Meta
+      # instagram_manage_comments / pages_manage_engagement scopes are granted (App
+      # Review). The Hermes reconciler + all route handlers run in this container,
+      # so only aries-app needs it.
+      ARIES_NATIVE_REPLY_ENABLED: ${ARIES_NATIVE_REPLY_ENABLED:-0}
+      # Image edit (image-to-image): when ON, the review drawer's "Edit this image"
+      # control routes an operator's edit instruction + the source image to the
+      # Hermes content-generator edit endpoint instead of a fresh regenerate. When
+      # OFF (default) the edit route 404s (invisible) and the UI section is hidden.
+      # All route handlers run in this container, so only aries-app needs it.
+      ARIES_IMAGE_EDIT_ENABLED: ${ARIES_IMAGE_EDIT_ENABLED:-0}
+      # AA-159 task-execution telemetry: when ON, every classified task execution
+      # appends a task_execution_log row tagged AI_LLM / DETERMINISTIC_RULE /
+      # LOCAL_EDGE, so AI inference cost can be compared against zero-cost
+      # deterministic and local/edge work. When OFF (default) nothing is written
+      # and no task changes behavior. Must be set on every service that executes
+      # classified work (app + the sweep/sync sidecars below).
+      ARIES_TASK_TELEMETRY_ENABLED: ${ARIES_TASK_TELEMETRY_ENABLED:-0}
+      # AA-163 plan gate: refuse to start new content generation once a company
+      # has spent its tier's monthly allowance. Default OFF (no DB round-trip, no
+      # behavior change). Enforced on TASK COUNTS — every AI row has NULL tokens
+      # until Hermes reports usage, so ARIES_PLAN_ENFORCEMENT_METRIC=tokens is
+      # safe but inert until then. Needs ARIES_USAGE_ROLLUP_ENABLED to be on as
+      # well: with no rollup watermark the gate reads usage as unmetered and
+      # allows everything (it never denies on absent data).
+      ARIES_PLAN_ENFORCEMENT_ENABLED: ${ARIES_PLAN_ENFORCEMENT_ENABLED:-0}
+      ARIES_PLAN_ENFORCEMENT_METRIC: ${ARIES_PLAN_ENFORCEMENT_METRIC:-tasks}
+      # Multi-workspace membership-aware auth resolution (Phase 1). When ON, the
+      # active-workspace pointer is validated against an ACTIVE
+      # organization_memberships row (role from the membership; workspaceCount on
+      # the session), sign-in stops minting personal orgs for zero-membership
+      # accounts (chooser instead), and the jwt hydrate clears stale tenant
+      # claims. Default OFF: resolution is byte-identical to the single-pointer
+      # model (golden-tested). Leave OFF until the full program's rendered-UI
+      # verification; all route handlers run in this container.
+      ARIES_MULTI_WORKSPACE_ENABLED: ${ARIES_MULTI_WORKSPACE_ENABLED:-0}
+      # S4-1 attribution scope rollout. Default OFF: Activity/Top keep today's
+      # all-channel numbers and no coverage query runs. Do NOT flip until the
+      # other post-derived sections (Hero/narrative, attention, trends, goal,
+      # conversations) scope with them — hoursSaved is shared with the Hero band
+      # and the high-performer baseline is shared with Section 3, so scoping
+      # only two sections makes them disagree.
+      ARIES_INSIGHTS_ATTRIBUTION_SCOPE_ENABLED: ${ARIES_INSIGHTS_ATTRIBUTION_SCOPE_ENABLED:-0}
+      # Share of a window's insights_posts that must carry aries_post_id before
+      # Activity/Top scope themselves to Aries-published posts. Below it both
+      # read all channel posts (the #785 behavior), so a tenant with unstamped
+      # history never sees an empty section. Out-of-range/unparseable → 0.8.
+      ARIES_INSIGHTS_ATTRIBUTION_THRESHOLD: ${ARIES_INSIGHTS_ATTRIBUTION_THRESHOLD:-0.8}
+      # AA-120: bound the authenticated ?force=true cache bypass on the six
+      # cached insights sections. Defaults ON — a rate limit that ships off
+      # protects nothing — so this is the kill switch, not the on switch. The
+      # gate runs before pool.connect(), so a throttled request never holds a
+      # connection. 5 per (tenant, section) per 5 min is invisible to the only
+      # human force path (the Retry button on a failed section) and cuts a
+      # scripted hammer by ~1000x. Per-process state: real ceiling is
+      # ARIES_WEB_CONCURRENCY x the burst.
+      ARIES_INSIGHTS_FORCE_THROTTLE_ENABLED: ${ARIES_INSIGHTS_FORCE_THROTTLE_ENABLED:-1}
+      ARIES_INSIGHTS_FORCE_THROTTLE_BURST: ${ARIES_INSIGHTS_FORCE_THROTTLE_BURST:-5}
+      ARIES_INSIGHTS_FORCE_THROTTLE_WINDOW_MS: ${ARIES_INSIGHTS_FORCE_THROTTLE_WINDOW_MS:-300000}
+      # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
+      # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
+      # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:
+      # creative descriptors like "Bold Minimalist" / "Quiet Luxury" stop
+      # being scrubbed to [redacted_name], while real first+last name pairs
+      # still get redacted. Email redaction unchanged. Tests:
+      # tests/memory-label-redaction.test.ts cover both modes.
+      ARIES_MEMORY_LABEL_REDACTION_V2: ${ARIES_MEMORY_LABEL_REDACTION_V2:-1}
+      HERMES_BRAND_ANALYSIS_SESSION_KEY: ${HERMES_BRAND_ANALYSIS_SESSION_KEY:-}
+      HERMES_BRAND_ANALYSIS_TIMEOUT_MS: ${HERMES_BRAND_ANALYSIS_TIMEOUT_MS:-}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      APP_BASE_URL: ${APP_BASE_URL}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      # 2026-05-24: flipped ON to ship Honcho continuous-profile-writes
+      # Phases 1+2+3 per docs/plans/2026-05-11. Code for all three was
+      # already on master; this flips the env defaults so the single-tenant
+      # prod container starts writing. Each phase has its own gate so any
+      # one can be killed without redeploy if a write surface misbehaves.
+      # PREREQUISITES: production .env must have HONCHO_BASE_URL +
+      # HONCHO_CONTROL_PLANE_JWT + HONCHO_DATA_PLANE_JWT +
+      # ARIES_TENANT_PSEUDONYM_SALT set. If unset, writes silently no-op
+      # per design ("Honcho unavailability must remain silent
+      # degradation"). The honcho_write_idempotency_keys Postgres table
+      # is in scripts/init-db.js:521.
+      HONCHO_ENABLED: ${HONCHO_ENABLED:-true}
+      HONCHO_WRITE_APPROVALS_ENABLED: ${HONCHO_WRITE_APPROVALS_ENABLED:-true}
+      HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-true}
+      HONCHO_WRITE_PREFERENCES_ENABLED: ${HONCHO_WRITE_PREFERENCES_ENABLED:-true}
+      # READ leg (ITEM A): the compounding per-brand profile injected into the
+      # research + strategy prompts. DEFAULT OFF — ships dark, because the
+      # dialectic answers are only worth prompt tokens once the write leg has
+      # soaked and the deriver has folded real observations into peer-brand.
+      # aries-app is the only service that submits stages, so no sidecar needs it.
+      ARIES_HONCHO_BRAND_CONTEXT_ENABLED: ${ARIES_HONCHO_BRAND_CONTEXT_ENABLED:-}
+      ARIES_HONCHO_DIALECTIC_TIMEOUT_MS: ${ARIES_HONCHO_DIALECTIC_TIMEOUT_MS:-}
+      HONCHO_BASE_URL: ${HONCHO_BASE_URL:-}
+      HONCHO_CONTROL_PLANE_JWT: ${HONCHO_CONTROL_PLANE_JWT:-}
+      HONCHO_DATA_PLANE_JWT: ${HONCHO_DATA_PLANE_JWT:-}
+      ARIES_TENANT_PSEUDONYM_SALT: ${ARIES_TENANT_PSEUDONYM_SALT:-}
+      ARIES_RESEARCH_ENABLED: ${ARIES_RESEARCH_ENABLED:-0}
+      ARIES_RESEARCH_MEMORY_TOKEN_BUDGET: ${ARIES_RESEARCH_MEMORY_TOKEN_BUDGET:-}
+      HERMES_RESEARCH_WEBHOOK_URL: ${HERMES_RESEARCH_WEBHOOK_URL:-}
+      HERMES_RESEARCH_AGENT_NAME: ${HERMES_RESEARCH_AGENT_NAME:-aries-research}
+      OAUTH_TOKEN_ENCRYPTION_KEY: ${OAUTH_TOKEN_ENCRYPTION_KEY}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN}
+      META_AD_ACCOUNT_ID: ${META_AD_ACCOUNT_ID}
+      META_PAGE_ID: ${META_PAGE_ID}
+      META_APP_ID: ${META_APP_ID}
+      META_APP_SECRET: ${META_APP_SECRET}
+      LINKEDIN_CLIENT_ID: ${LINKEDIN_CLIENT_ID}
+      LINKEDIN_CLIENT_SECRET: ${LINKEDIN_CLIENT_SECRET}
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET}
+      REDDIT_USER_AGENT: ${REDDIT_USER_AGENT:-}
+      X_CLIENT_ID: ${X_CLIENT_ID}
+      X_CLIENT_SECRET: ${X_CLIENT_SECRET}
+      # Composio integration (OPTIONAL, isolated). Defaults keep it OFF and the
+      # publish/analytics path on the existing direct Meta flow — no behavior
+      # change. To turn it on later: set COMPOSIO_ENABLED=true + COMPOSIO_API_KEY
+      # (+ the *_AUTH_CONFIG_ID and *_ACTION slugs) in the prod host .env and
+      # restart. See docs/integrations/composio.md.
+      COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
+      COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      # X (Twitter) connect rollout flag — default OFF ships the platform dormant
+      # (card hidden; connect/capabilities 400 unsupported_platform as today).
+      ARIES_X_ENABLED: ${ARIES_X_ENABLED:-false}
+      ARIES_REDDIT_ENABLED: ${ARIES_REDDIT_ENABLED:-false}
+      # LinkedIn rollout flag — default OFF ships the connect-time person-URN
+      # lookup dormant (no LINKEDIN_GET_MY_INFO call; connect byte-identical).
+      ARIES_LINKEDIN_ENABLED: ${ARIES_LINKEDIN_ENABLED:-false}
+      # YouTube insights rollout flag (#637/#638) — default OFF ships the
+      # Composio-backed YouTube insights adapter dormant (no bridge row, no
+      # adapter, no Composio tool). Gates insights only, not connectability.
+      ARIES_YOUTUBE_ENABLED: ${ARIES_YOUTUBE_ENABLED:-false}
+      # Toolkit version for manual Composio tool execution (publish/analytics/
+      # comments). The SDK rejects by-slug execution without one; default 'latest'
+      # (gateway pairs it with a skip-check). Pin a concrete version to avoid drift.
+      COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
+      COMPOSIO_DEFAULT_AUTH_CONFIG_ID: ${COMPOSIO_DEFAULT_AUTH_CONFIG_ID:-}
+      COMPOSIO_METAADS_AUTH_CONFIG_ID: ${COMPOSIO_METAADS_AUTH_CONFIG_ID:-}
+      COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}
+      COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID: ${COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID:-}
+      COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
+      COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
+      COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}
+      # X (Twitter) auth config — only consulted when ARIES_X_ENABLED=true.
+      COMPOSIO_X_AUTH_CONFIG_ID: ${COMPOSIO_X_AUTH_CONFIG_ID:-}
+      # Composio action slugs (COMPOSIO_<PLATFORM>_<OPERATION>_ACTION). Required
+      # for Composio-routed publishing — a missing slug is refused with a clear
+      # capability error, never executed against a guessed action.
+      COMPOSIO_FACEBOOK_PUBLISH_POST_ACTION: ${COMPOSIO_FACEBOOK_PUBLISH_POST_ACTION:-}
+      COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION: ${COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION:-}
+      COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION: ${COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION:-}
+      COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION: ${COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION:-}
+      COMPOSIO_FACEBOOK_PUBLISH_VIDEO_ACTION: ${COMPOSIO_FACEBOOK_PUBLISH_VIDEO_ACTION:-}
+      COMPOSIO_INSTAGRAM_ACCOUNT_INFO_ACTION: ${COMPOSIO_INSTAGRAM_ACCOUNT_INFO_ACTION:-}
+      # In-app feedback button — Google Sheet mirror. The feedback API runs in the
+      # app process, so these live here only. Mirror activates only when
+      # COMPOSIO_ENABLED=true AND all four are set in the prod host .env; otherwise
+      # submissions persist to Postgres with sheet_sync_status='skipped'.
+      COMPOSIO_FEEDBACK_GOOGLE_CONNECTED_ACCOUNT_ID: ${COMPOSIO_FEEDBACK_GOOGLE_CONNECTED_ACCOUNT_ID:-}
+      FEEDBACK_GOOGLE_SHEET_ID: ${FEEDBACK_GOOGLE_SHEET_ID:-}
+      FEEDBACK_GOOGLE_SHEET_TAB: ${FEEDBACK_GOOGLE_SHEET_TAB:-Feedback}
+      COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION: ${COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION:-}
+      # In-app feedback button — JIRA mirror (preferred over the Sheet when set).
+      # The feedback API runs in the app process, so these live here only. The
+      # mirror activates only when ALL of base URL + email + token + project key
+      # are set in the prod host .env; otherwise it falls back to the Sheet, then
+      # to durable-DB-only (sheet_sync_status='skipped'). JIRA_API_TOKEN is a
+      # secret — set it in the host .env, never commit it.
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-}
+      JIRA_FEEDBACK_ISSUE_TYPE: ${JIRA_FEEDBACK_ISSUE_TYPE:-Task}
+      # Optional feedback knobs. FEEDBACK_ENABLED defaults to true here so the
+      # button stays visible when the var is unset; resolveFeedbackConfig() also
+      # treats an empty string as unset (defaults on), so this is belt-and-
+      # suspenders. Set FEEDBACK_ENABLED=false in the host .env to hide the button.
+      FEEDBACK_ENABLED: ${FEEDBACK_ENABLED:-true}
+      FEEDBACK_RATE_LIMIT_PER_HOUR: ${FEEDBACK_RATE_LIMIT_PER_HOUR:-}
+      FEEDBACK_ENVIRONMENT: ${FEEDBACK_ENVIRONMENT:-}
+      # Customer incident reports (SC-70 port, AA-51) — the auth-gated
+      # /api/feedback/submit pipeline. Shares the JIRA_* connection above but
+      # files issue type "Bug" (project AA has it; the legacy path keeps Task).
+      # All optional: unset ⇒ reports park as pending_retry and the retry
+      # sweep sidecar heals them once JIRA_* lands.
+      JIRA_INCIDENT_ISSUE_TYPE: ${JIRA_INCIDENT_ISSUE_TYPE:-Bug}
+      FEEDBACK_MAX_IMAGE_BYTES: ${FEEDBACK_MAX_IMAGE_BYTES:-2000000}
+      FEEDBACK_USER_RATE_LIMIT_PER_HOUR: ${FEEDBACK_USER_RATE_LIMIT_PER_HOUR:-10}
+      FEEDBACK_SHARED_RATE_LIMIT_PER_HOUR: ${FEEDBACK_SHARED_RATE_LIMIT_PER_HOUR:-100}
+      # Optional: edge must strip the incoming proof header, then inject this
+      # value as x-aries-proxy-verification before forwarded IPs are trusted.
+      ARIES_TRUSTED_PROXY_SECRET: ${ARIES_TRUSTED_PROXY_SECRET:-}
+      FEEDBACK_DEDUP_WINDOW_SECONDS: ${FEEDBACK_DEDUP_WINDOW_SECONDS:-60}
+      FEEDBACK_RETRY_MAX_ATTEMPTS: ${FEEDBACK_RETRY_MAX_ATTEMPTS:-5}
+      FEEDBACK_STALE_PENDING_MINUTES: ${FEEDBACK_STALE_PENDING_MINUTES:-15}
+      # X (Twitter) publish slugs — only consulted when ARIES_X_ENABLED=true and
+      # PUBLISH_PROVIDER=composio/auto. Publish executes in the app process (the
+      # scheduled-posts-worker only POSTs to the route), so these live here only.
+      #   COMPOSIO_X_PUBLISH_POST_ACTION=TWITTER_CREATION_OF_A_POST
+      #   COMPOSIO_X_UPLOAD_MEDIA_ACTION=TWITTER_UPLOAD_MEDIA
+      COMPOSIO_X_PUBLISH_POST_ACTION: ${COMPOSIO_X_PUBLISH_POST_ACTION:-}
+      COMPOSIO_X_UPLOAD_MEDIA_ACTION: ${COMPOSIO_X_UPLOAD_MEDIA_ACTION:-}
+      # Reddit publish (#641) — only consulted when ARIES_REDDIT_ENABLED=true and
+      # PUBLISH_PROVIDER=composio/auto. Publish runs in the app process (the
+      # scheduled-posts-worker only POSTs to the route), so these live here only.
+      # No media-upload action (image is the kind=link url). TARGET_SUBREDDIT is
+      # REQUIRED for reddit publish (Reddit's `sr` addresses communities only —
+      # there is no u_<username> profile fallback); unset → reddit is skipped by
+      # the weekly crosspost producer and refused up-front by the publisher.
+      # FLAIR_ID optional.
+      #   COMPOSIO_REDDIT_PUBLISH_POST_ACTION=REDDIT_CREATE_REDDIT_POST
+      COMPOSIO_REDDIT_PUBLISH_POST_ACTION: ${COMPOSIO_REDDIT_PUBLISH_POST_ACTION:-}
+      COMPOSIO_REDDIT_TARGET_SUBREDDIT: ${COMPOSIO_REDDIT_TARGET_SUBREDDIT:-}
+      COMPOSIO_REDDIT_FLAIR_ID: ${COMPOSIO_REDDIT_FLAIR_ID:-}
+      # LinkedIn member-identity slug (#645) — only consulted when
+      # ARIES_LINKEDIN_ENABLED=true. Optional; defaults to the verified
+      # LINKEDIN_GET_MY_INFO slug. Resolves the member's urn:li:person:<id> at
+      # connect so LinkedIn publish (#646) has an author. App-process only.
+      COMPOSIO_LINKEDIN_ACCOUNT_INFO_ACTION: ${COMPOSIO_LINKEDIN_ACCOUNT_INFO_ACTION:-}
+      # LinkedIn publish slug (#646) — only consulted when ARIES_LINKEDIN_ENABLED=true
+      # and PUBLISH_PROVIDER=composio/auto. ONE action (no separate media-upload —
+      # the image is staged via gateway.uploadFile and passed in images:[...]).
+      # Publish runs in the app process, so this lives here only.
+      #   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION=LINKEDIN_CREATE_LINKED_IN_POST
+      COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: ${COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION:-}
+      # YouTube publish (#636) — only consulted when ARIES_YOUTUBE_ENABLED=true and
+      # PUBLISH_PROVIDER=composio/auto. Aries synthesizes a short MP4 from the still
+      # (ffmpeg), stages it via gateway.uploadFile, and uploads it. The action is a
+      # VIDEO upload; the file arg key (videoFilePath vs videoFile) is derived from
+      # the configured slug. CATEGORY_ID defaults to '22'; PRIVACY_STATUS defaults to
+      # 'public' (set 'unlisted' for first live verification). App-process only.
+      #   COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION=YOUTUBE_UPLOAD_VIDEO
+      COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION: ${COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION:-}
+      COMPOSIO_YOUTUBE_CATEGORY_ID: ${COMPOSIO_YOUTUBE_CATEGORY_ID:-}
+      COMPOSIO_YOUTUBE_PRIVACY_STATUS: ${COMPOSIO_YOUTUBE_PRIVACY_STATUS:-}
+      # Facebook analytics + comments sync slugs (#596/#597). Optional — the
+      # adapter falls back to the verified code defaults when unset.
+      COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}
+      COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION:-}
+      COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION:-}
+      # Native comment reply via Composio (#598/gate-5) — avoids Meta App Review.
+      # Optional; defaults to the verified FACEBOOK_CREATE_COMMENT slug. Consumed
+      # only by the app (the reply endpoint), routed when PUBLISH_PROVIDER=composio.
+      COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION: ${COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION:-}
+      # New-platform native reply via Composio (#634/gate-5) — X/YouTube/Reddit/
+      # LinkedIn. Optional slug overrides; default to the verified catalog slugs.
+      # Consumed only by the app (the reply endpoint runs in aries-app), each
+      # admitted behind its own ARIES_<P>_ENABLED + master ARIES_NATIVE_REPLY_ENABLED.
+      COMPOSIO_X_REPLY_COMMENT_ACTION: ${COMPOSIO_X_REPLY_COMMENT_ACTION:-}
+      COMPOSIO_YOUTUBE_REPLY_COMMENT_ACTION: ${COMPOSIO_YOUTUBE_REPLY_COMMENT_ACTION:-}
+      COMPOSIO_REDDIT_REPLY_COMMENT_ACTION: ${COMPOSIO_REDDIT_REPLY_COMMENT_ACTION:-}
+      COMPOSIO_LINKEDIN_REPLY_COMMENT_ACTION: ${COMPOSIO_LINKEDIN_REPLY_COMMENT_ACTION:-}
+      PUBLISH_PROVIDER: ${PUBLISH_PROVIDER:-composio}
+      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-composio}
+      AUTH_URL: ${AUTH_URL}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      MARKETING_STATUS_PUBLIC: ${MARKETING_STATUS_PUBLIC:-}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      PARTNER_ATTRIBUTION_ENABLED: ${PARTNER_ATTRIBUTION_ENABLED:-false}
+      VMS_BASE_URL: ${VMS_BASE_URL:-http://vms-app:3000}
+      VMS_WEBHOOK_SECRET: ${VMS_WEBHOOK_SECRET:-}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      # Stage-cache lookup roots used by Aries artifact ingestion.
+      ARTIFACT_PIPELINE_CWD: ${ARTIFACT_PIPELINE_CWD:-/app/hermes}
+      ARTIFACT_PIPELINE_LOCAL_CWD: ${ARTIFACT_PIPELINE_LOCAL_CWD:-/app/hermes}
+      # Marketing stage cache dirs. Aries reads generated stage artifacts from
+      # these roots; keep them under the shared /data bind mount. See DOCKER.md.
+      ARTIFACT_STAGE1_CACHE_DIR: ${ARTIFACT_STAGE1_CACHE_DIR:-/data/hermes-stage1-cache}
+      ARTIFACT_STAGE2_CACHE_DIR: ${ARTIFACT_STAGE2_CACHE_DIR:-/data/hermes-stage2-cache}
+      ARTIFACT_STAGE3_CACHE_DIR: ${ARTIFACT_STAGE3_CACHE_DIR:-/data/hermes-stage3-cache}
+      ARTIFACT_STAGE4_CACHE_DIR: ${ARTIFACT_STAGE4_CACHE_DIR:-/data/hermes-stage4-cache}
+      # Host artifact output mount: read by asset-ingest to copy generated
+      # assets into DATA_ROOT at ingest time. Keep _DIR/_MOUNT in sync with
+      # the bind mount below so asset-ingest can remap host paths.
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: ${ARIES_HOST_ARTIFACT_OUTPUT_DIR:-/home/node/aries-app/hermes/output}
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: ${ARIES_HOST_ARTIFACT_OUTPUT_MOUNT:-/hermes-output}
+      # Hermes image cache mount: host path where Hermes writes generated images,
+      # bind-mounted read-only into the container so /api/internal/hermes/media
+      # can stream them to authenticated browser sessions and the production
+      # callback can ingest creative_assets into the DB.
+      #
+      # NOTE: the three-profile Hermes routing (PR #390) moved generated images
+      # out of the legacy <hermes>/cache/images into a profile-scoped directory,
+      # <hermes>/profiles/aries-content-generator/cache/images. The bind-mount
+      # below MUST point at the profile cache or the marketing pipeline's images
+      # are unreadable from the container — publish ingestion silently produces
+      # zero creative_assets and the operator dashboard shows "No launch items".
+      HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
+      # Durable media (object storage) — the third read root behind the public
+      # media proxy, after the Hermes mount and ingested-assets. The Hermes cache
+      # is a working cache owned by another process; on 2026-08-11 every asset
+      # generated the day before vanished from it while nine posts were still
+      # queued, and Meta refused the publish because the URL 404'd. Default OFF,
+      # and treated as OFF unless a bucket is also set.
+      ARIES_DURABLE_MEDIA_ENABLED: ${ARIES_DURABLE_MEDIA_ENABLED:-0}
+      ARIES_DURABLE_MEDIA_BUCKET: ${ARIES_DURABLE_MEDIA_BUCKET:-}
+      ARIES_DURABLE_MEDIA_PREFIX: ${ARIES_DURABLE_MEDIA_PREFIX:-creative}
+      ARIES_DURABLE_MEDIA_TIMEOUT_MS: ${ARIES_DURABLE_MEDIA_TIMEOUT_MS:-10000}
+      # Hermes localizes generated VIDEO into a sibling profile dir
+      # (<hermes>/profiles/aries-content-generator/cache/videos), NOT cache/images.
+      # Bind it read-only on its own mount so ingest can read generated reels/
+      # stories; ingest copies the bytes into DATA_ROOT (ingested_asset) so they
+      # survive Hermes cache eviction. Only meaningful with ARIES_VIDEO_PUBLISH_ENABLED.
+      HERMES_VIDEO_CACHE_MOUNT: ${HERMES_VIDEO_CACHE_MOUNT:-/hermes-video-media}
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
+      - ${ARIES_HOST_ARTIFACT_OUTPUT_DIR:-/home/node/aries-app/hermes/output}:${ARIES_HOST_ARTIFACT_OUTPUT_MOUNT:-/hermes-output}:ro
+      - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/images}:/hermes-media:ro
+      - ${HERMES_VIDEO_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/videos}:/hermes-video-media:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "scripts/container-healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      com.delicioushouse.aries.autoheal: "true"
+    networks:
+      - docker_stack
+
+  # Optional production Hermes sidecar. It is dormant unless the
+  # `hermes-sidecar` profile is activated, so existing external gateways and
+  # the temporary in-image CLI compatibility path keep working during cutover.
+  # The release tag is paired with its immutable multi-arch manifest digest.
+  aries-hermes:
+    image: ${ARIES_HERMES_IMAGE:-nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7}
+    profiles: ["hermes-sidecar"]
+    command: ["gateway", "run"]
+    environment:
+      HERMES_UID: ${HERMES_UID:-1000}
+      HERMES_GID: ${HERMES_GID:-1000}
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: 8642
+      API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+    volumes:
+      - ${ARIES_HERMES_DATA_ROOT:-/home/node/.hermes}:/opt/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 http://127.0.0.1:8642/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    networks:
+      - docker_stack
+
+  # Docker's restart policy only reacts to process exits, not an unhealthy
+  # healthcheck. This socket-scoped watcher selects only the Aries-specific
+  # label, caps each container at three restarts per 15-minute window, and then
+  # leaves persistent failure unhealthy and visible to operators. The state
+  # volume preserves that budget if the watcher itself restarts.
+  aries-autoheal:
+    image: willfarrell/autoheal:1.2.0@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c
+    entrypoint: ["/bin/sh", "/usr/local/bin/aries-autoheal.sh"]
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: com.delicioushouse.aries.autoheal
+      AUTOHEAL_CONTAINER_LABEL_VALUE: "true"
+      AUTOHEAL_INTERVAL: 30
+      AUTOHEAL_MAX_RESTARTS_PER_WINDOW: 3
+      AUTOHEAL_RESTART_WINDOW_SECONDS: 900
+      AUTOHEAL_STOP_TIMEOUT: 10
+      AUTOHEAL_STATE_DIR: /var/lib/aries-autoheal
+    labels:
+      com.delicioushouse.aries.autoheal.watcher: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts/aries-autoheal.sh:/usr/local/bin/aries-autoheal.sh:ro
+      - aries-autoheal-state:/var/lib/aries-autoheal
+    read_only: true
+    tmpfs:
+      - /tmp
+    network_mode: none
+    restart: unless-stopped
+
+  # Long-lived sidecar that drains the scheduled_posts table and POSTs due rows
+  # to /api/internal/publishing/scheduled-dispatch every 60 seconds. The worker
+  # script self-schedules via setInterval when started without
+  # ARIES_SCHEDULED_POSTS_RUN_ONCE, so this service just keeps that process up;
+  # single replica avoids racing the SQL claim-lock on the same row.
+  aries-scheduled-posts-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node", "scripts/automations/scheduled-posts-worker.mjs"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      # Hit the in-network app, not the public URL — avoids a public DNS + TLS
+      # round-trip on every tick. The /api/internal/publishing/scheduled-dispatch
+      # route authenticates on INTERNAL_API_SECRET, not on host.
+      APP_BASE_URL: http://aries-app:${PORT:-3000}
+      NEXTAUTH_URL: http://aries-app:${PORT:-3000}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      # Retry backoff after a non-terminal dispatch outcome (minutes). The
+      # rate-limit tier applies when the persisted error matches a platform
+      # rate-limit signature (e.g. FB error 368) — retrying those at tick
+      # cadence keeps the limit tripped indefinitely.
+      ARIES_DISPATCH_RETRY_BACKOFF_MINUTES: ${ARIES_DISPATCH_RETRY_BACKOFF_MINUTES:-10}
+      ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES: ${ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES:-180}
+      ARIES_DISPATCH_TRANSIENT_MAX_ATTEMPTS: ${ARIES_DISPATCH_TRANSIENT_MAX_ATTEMPTS:-5}
+      # The longest publish request is 330s. SIGTERM drains its active tick for
+      # 350s, while Compose grants 360s before SIGKILL.
+      ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS: ${ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS:-350000}
+      # Owner-gated auto-publish — the ENFORCEMENT point. The admit predicate is
+      # spliced into this worker's due-scan, claim and dead-campaign sweep, so
+      # the flag must be set HERE as well as on aries-app (which only reports the
+      # gate's state to the settings UI). A value set on one service and not the
+      # other means the UI and the dispatcher disagree.
+      ARIES_AUTO_PUBLISH_GATE_ENABLED: ${ARIES_AUTO_PUBLISH_GATE_ENABLED:-0}
+    stop_grace_period: 6m
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Weekly-job trigger worker — evaluates each opted-in tenant daily at its
+  # configured hour/tz and starts weekly_social_content only when the current
+  # marketing_schedule cadence window has no worker-created job. Single replica:
+  # the atomic claim UPDATE makes
+  # concurrency safe, but one replica keeps logs simple and load minimal. Gated
+  # by ARIES_WEEKLY_TRIGGER_ENABLED (default OFF) so this ships dormant; flip it
+  # on only after a marketing_schedule row exists for the test tenant. It POSTs
+  # to the in-network app's /api/internal/marketing/weekly-trigger (auth on
+  # INTERNAL_API_SECRET); the app process owns the Hermes submission.
+  aries-weekly-trigger-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/weekly-job-trigger-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ARIES_WEEKLY_TRIGGER_ENABLED: ${ARIES_WEEKLY_TRIGGER_ENABLED:-0}
+      ARIES_WEEKLY_TRIGGER_INTERVAL_MS: ${ARIES_WEEKLY_TRIGGER_INTERVAL_MS:-900000}
+      ARIES_WEEKLY_TRIGGER_SUBMIT_TIMEOUT_MS: ${ARIES_WEEKLY_TRIGGER_SUBMIT_TIMEOUT_MS:-600000}
+      # In-network app, not the public URL — the weekly-trigger route authenticates
+      # on INTERNAL_API_SECRET, not on host.
+      APP_BASE_URL: http://aries-app:${PORT:-3000}
+      NEXTAUTH_URL: http://aries-app:${PORT:-3000}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Draft-expiry sweep worker — expires STRANDED pre-publish posts (no
+  # scheduled_posts row, never published, older than the age window) so the
+  # unscheduled-approved backlog stops growing without bound once the weekly
+  # trigger fans out across tenants (the "36 stranded approved IG posts"
+  # symptom). Single replica; the sweep is idempotent and batched. Talks only to
+  # Postgres (no app round-trip). Gated by ARIES_DRAFT_EXPIRY_ENABLED (default
+  # OFF) so it ships dormant and idles cleanly when off. Before first enabling in
+  # prod, run one cycle with ARIES_DRAFT_EXPIRY_DRY_RUN=1 to observe candidate
+  # counts (read-only), then flip DRY_RUN back to 0 to commit.
+  aries-draft-expiry-sweep-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/draft-expiry-sweep-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ARIES_DRAFT_EXPIRY_ENABLED: ${ARIES_DRAFT_EXPIRY_ENABLED:-0}
+      ARIES_DRAFT_EXPIRY_DRY_RUN: ${ARIES_DRAFT_EXPIRY_DRY_RUN:-0}
+      ARIES_DRAFT_EXPIRY_INTERVAL_MS: ${ARIES_DRAFT_EXPIRY_INTERVAL_MS:-21600000}
+      ARIES_DRAFT_EXPIRY_AGE_DAYS: ${ARIES_DRAFT_EXPIRY_AGE_DAYS:-14}
+      # AA-159: log each sweep pass as DETERMINISTIC_RULE (zero tokens). Written
+      # on the sweep's own db handle, so no extra pooled connection.
+      ARIES_TASK_TELEMETRY_ENABLED: ${ARIES_TASK_TELEMETRY_ENABLED:-0}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Long-lived sidecar that marks creative_assets rows orphaned once their Hermes
+  # image-cache file has been evicted, so the dashboard stops emitting dead
+  # /api/internal/hermes/media/<id> URLs that 404 (the "Posts page preview 404s"
+  # symptom — qa-defect #599). DB-only mark via runGcMissingHermesAssets; the
+  # dashboard query already filters orphaned_at IS NULL. Needs the read-only
+  # Hermes image-cache mount to tell "evicted" from "unreadable". Single replica;
+  # gated by ARIES_HERMES_GC_ENABLED (default OFF) — when off it idles cleanly.
+  aries-hermes-gc-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/gc-missing-hermes-assets-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
+      # Durable media (object storage) — the third read root behind the public
+      # media proxy, after the Hermes mount and ingested-assets. The Hermes cache
+      # is a working cache owned by another process; on 2026-08-11 every asset
+      # generated the day before vanished from it while nine posts were still
+      # queued, and Meta refused the publish because the URL 404'd. Default OFF,
+      # and treated as OFF unless a bucket is also set.
+      ARIES_DURABLE_MEDIA_ENABLED: ${ARIES_DURABLE_MEDIA_ENABLED:-0}
+      ARIES_DURABLE_MEDIA_BUCKET: ${ARIES_DURABLE_MEDIA_BUCKET:-}
+      ARIES_DURABLE_MEDIA_PREFIX: ${ARIES_DURABLE_MEDIA_PREFIX:-creative}
+      ARIES_DURABLE_MEDIA_TIMEOUT_MS: ${ARIES_DURABLE_MEDIA_TIMEOUT_MS:-10000}
+      ARIES_HERMES_GC_ENABLED: ${ARIES_HERMES_GC_ENABLED:-0}
+      ARIES_HERMES_GC_DRY_RUN: ${ARIES_HERMES_GC_DRY_RUN:-0}
+      ARIES_HERMES_GC_INTERVAL_MS: ${ARIES_HERMES_GC_INTERVAL_MS:-21600000}
+      ARIES_HERMES_GC_MAX_AGE_DAYS: ${ARIES_HERMES_GC_MAX_AGE_DAYS:-7}
+    volumes:
+      - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/images}:/hermes-media:ro
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Long-lived sidecar that heals customer incident reports (SC-70 port) whose
+  # Jira delivery is incomplete: parked pending_retry rows, attach-only
+  # completions, and stale 'pending' rows stranded by a crash. Atomic
+  # FOR UPDATE SKIP LOCKED claims make concurrent sweeps safe. Default ON —
+  # without JIRA_* config it idles with one info line and touches nothing, and
+  # default-on is what lets parked reports heal the moment config lands. Set
+  # ARIES_FEEDBACK_RETRY_ENABLED=0 to idle it explicitly.
+  aries-feedback-retry-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/feedback-retry-sweep-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ARIES_FEEDBACK_RETRY_ENABLED: ${ARIES_FEEDBACK_RETRY_ENABLED:-1}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-}
+      JIRA_INCIDENT_ISSUE_TYPE: ${JIRA_INCIDENT_ISSUE_TYPE:-Bug}
+      FEEDBACK_RETRY_INTERVAL_MINUTES: ${FEEDBACK_RETRY_INTERVAL_MINUTES:-5}
+      FEEDBACK_RETRY_BATCH_LIMIT: ${FEEDBACK_RETRY_BATCH_LIMIT:-10}
+      FEEDBACK_RETRY_MAX_ATTEMPTS: ${FEEDBACK_RETRY_MAX_ATTEMPTS:-5}
+      FEEDBACK_STALE_PENDING_MINUTES: ${FEEDBACK_STALE_PENDING_MINUTES:-15}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Long-lived sidecar that syncs platform analytics (YouTube, Instagram, etc.)
+  # for every tenant with a connected insights_account. Runs every 30 minutes.
+  # Single replica avoids duplicate API calls and redundant DB writes that would
+  # occur if the sync ran inside every Next.js process (ARIES_WEB_CONCURRENCY=4).
+  aries-insights-sync-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/insights-sync-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-false}
+      ARIES_TENANT_PSEUDONYM_SALT: ${ARIES_TENANT_PSEUDONYM_SALT:-}
+      # Grace window (minutes) before the stranded-run sweep fails out a
+      # 'running' insights_sync_runs row. Widen before any long-running
+      # sync path (e.g. a backfill script) ships.
+      ARIES_INSIGHTS_SWEEP_GRACE_MINUTES: ${ARIES_INSIGHTS_SWEEP_GRACE_MINUTES:-60}
+      # Composio analytics (#596/#597). ACTIVATION: the Facebook insights path
+      # (account bridge + adapter) turns on ONLY when ANALYTICS_PROVIDER=composio.
+      # ANALYTICS_PROVIDER defaults to composio (here and in code), so the only
+      # default-deploy blocker is COMPOSIO_ENABLED=false; setting
+      # ANALYTICS_PROVIDER=direct_meta explicitly disables the path. When enabled, the adapter
+      # executes Composio tools, so this sidecar needs the same Composio
+      # credentials as the app (COMPOSIO_API_KEY etc.); the *_ACTION slugs are
+      # optional (verified code defaults).
+      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-composio}
+      COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
+      COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      # Comment sentiment/lead/category classification via a raw Hermes run
+      # (backend/insights/sync/classify-comments.ts). Shipped default ON
+      # (roadmap flag-flip row 1, S1-11) — powers Conversations sentiment,
+      # "What people are asking", goal/attention lead counts, and trends/top
+      # sentiment. Needs the Hermes gateway creds below (already required by
+      # aries-app; same host .env). If creds are ABSENT with the flag on, any
+      # sync run that attempts classification (i.e. has unclassified comments)
+      # downgrades to 'partial' with classifyComments: not_configured —
+      # deliberate visibility, not breakage (all other legs still persist).
+      # Best-effort — never breaks the sync tick. Set 0 to disable.
+      ARIES_COMMENT_CLASSIFICATION_ENABLED: ${ARIES_COMMENT_CLASSIFICATION_ENABLED:-1}
+      HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
+      HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+      HERMES_COMMENT_CLASSIFY_MODEL: ${HERMES_COMMENT_CLASSIFY_MODEL:-}
+      # AA-159: log the comment-classification leg as AI_LLM with its requested
+      # model hint (the rest of the sync tick is not model work).
+      ARIES_TASK_TELEMETRY_ENABLED: ${ARIES_TASK_TELEMETRY_ENABLED:-0}
+      # Toolkit version for manual Composio tool execution (see aries-app above).
+      COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
+      COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}
+      COMPOSIO_DEFAULT_AUTH_CONFIG_ID: ${COMPOSIO_DEFAULT_AUTH_CONFIG_ID:-}
+      COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}
+      COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION:-}
+      COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION:-}
+      # Instagram analytics (#692/#693), read by this worker's IG adapter
+      # (backend/insights/adapters/instagram). IG runs on the SAME gate as
+      # Facebook — ANALYTICS_PROVIDER=composio + COMPOSIO_ENABLED, no separate
+      # rollout flag — so whenever the FB adapter is live the IG adapter is too.
+      # Until S3-5 these five were the ONLY insights adapter's slug overrides not
+      # wired here (FB, X, YouTube, Reddit and LinkedIn all had theirs), which
+      # pinned IG to its hardcoded defaults with no escape hatch: a renamed
+      # toolkit slug could only be corrected by editing this file and
+      # redeploying, mid-incident. Optional like every other row here — blank
+      # means "use the verified code default" (the adapter's DEFAULT_SLUGS).
+      COMPOSIO_INSTAGRAM_LIST_POSTS_ACTION: ${COMPOSIO_INSTAGRAM_LIST_POSTS_ACTION:-}
+      COMPOSIO_INSTAGRAM_POST_INSIGHTS_ACTION: ${COMPOSIO_INSTAGRAM_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_INSTAGRAM_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_INSTAGRAM_ACCOUNT_INSIGHTS_ACTION:-}
+      COMPOSIO_INSTAGRAM_ACCOUNT_INFO_ACTION: ${COMPOSIO_INSTAGRAM_ACCOUNT_INFO_ACTION:-}
+      COMPOSIO_INSTAGRAM_LIST_COMMENTS_ACTION: ${COMPOSIO_INSTAGRAM_LIST_COMMENTS_ACTION:-}
+      # X (Twitter) analytics + comment replies (#632/#633), read by the
+      # insights-sync worker's X adapter (backend/insights/adapters/x). The X
+      # insights path (account bridge + adapter) turns on ONLY when
+      # ARIES_X_ENABLED=true AND COMPOSIO_ENABLED=true; otherwise dormant.
+      # AUTH_CONFIG_ID is the tenant's Composio auth config; the *_ACTION slugs
+      # are optional (verified code defaults: TWITTER_POST_LOOKUP_BY_POST_ID(S),
+      # TWITTER_RECENT_SEARCH).
+      ARIES_X_ENABLED: ${ARIES_X_ENABLED:-false}
+      COMPOSIO_X_AUTH_CONFIG_ID: ${COMPOSIO_X_AUTH_CONFIG_ID:-}
+      COMPOSIO_X_POST_INSIGHTS_ACTION: ${COMPOSIO_X_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_X_LIST_COMMENTS_ACTION: ${COMPOSIO_X_LIST_COMMENTS_ACTION:-}
+      COMPOSIO_X_LIST_POSTS_ACTION: ${COMPOSIO_X_LIST_POSTS_ACTION:-}
+      # YouTube analytics + comments (#637/#638), read by the insights-sync
+      # worker's YouTube adapter (backend/insights/adapters/youtube). The YouTube
+      # insights path (account bridge + adapter) turns on ONLY when
+      # ARIES_YOUTUBE_ENABLED=true AND COMPOSIO_ENABLED=true; otherwise
+      # dormant. AUTH_CONFIG_ID is the tenant's Composio auth config; the *_ACTION
+      # slugs are optional (verified code defaults: YOUTUBE_LIST_CHANNEL_VIDEOS,
+      # YOUTUBE_GET_VIDEO_DETAILS_BATCH, YOUTUBE_LIST_COMMENT_THREADS2).
+      ARIES_YOUTUBE_ENABLED: ${ARIES_YOUTUBE_ENABLED:-false}
+      COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
+      COMPOSIO_YOUTUBE_POST_INSIGHTS_ACTION: ${COMPOSIO_YOUTUBE_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_YOUTUBE_LIST_COMMENTS_ACTION: ${COMPOSIO_YOUTUBE_LIST_COMMENTS_ACTION:-}
+      COMPOSIO_YOUTUBE_LIST_POSTS_ACTION: ${COMPOSIO_YOUTUBE_LIST_POSTS_ACTION:-}
+      # Reddit analytics + comments (#642/#643), read by the insights-sync worker's
+      # Reddit adapter (backend/insights/adapters/reddit). The Reddit insights path
+      # (account bridge + adapter) turns on ONLY when ARIES_REDDIT_ENABLED=true AND
+      # COMPOSIO_ENABLED=true; otherwise dormant. REUSES ARIES_REDDIT_ENABLED
+      # from the #641 publish path (no new flag). This flag MUST be set on the
+      # worker (not just aries-app): the worker process runs the insights sync, so
+      # without it here the sidecar reads it false and Reddit insights stay dormant
+      # even when enabled. AUTH_CONFIG_ID is the tenant's Composio auth config; the
+      # *_ACTION slugs are optional (verified code defaults: REDDIT_RETRIEVE_REDDIT_POST,
+      # REDDIT_RETRIEVE_POST_COMMENTS). NO LIST_POSTS — Reddit's post universe is
+      # the `posts` table (no Composio "list my posts" action), like X.
+      ARIES_REDDIT_ENABLED: ${ARIES_REDDIT_ENABLED:-false}
+      COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}
+      COMPOSIO_REDDIT_POST_INSIGHTS_ACTION: ${COMPOSIO_REDDIT_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_REDDIT_LIST_COMMENTS_ACTION: ${COMPOSIO_REDDIT_LIST_COMMENTS_ACTION:-}
+      # LinkedIn analytics (#647), read by the insights-sync worker's LinkedIn
+      # adapter (backend/insights/adapters/linkedin). The LinkedIn insights path
+      # (account bridge + adapter) turns on ONLY when ARIES_LINKEDIN_ENABLED=true
+      # AND COMPOSIO_ENABLED=true; otherwise dormant. AUTH_CONFIG_ID is the
+      # tenant's Composio auth config; POST_INSIGHTS_ACTION is optional (verified
+      # code default: LINKEDIN_LIST_REACTIONS). Personal-reactions-only — there is
+      # no list-comments slug (LinkedIn has no Composio list-comments action, #648).
+      ARIES_LINKEDIN_ENABLED: ${ARIES_LINKEDIN_ENABLED:-false}
+      COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
+      COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION: ${COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION:-}
+    # The Hermes gateway is a HOST process (listening on 0.0.0.0:8642), not a
+    # compose service, so HERMES_GATEWAY_URL is host.docker.internal-scoped.
+    # Only aries-app carried the host-gateway mapping, so every comment
+    # classification call from this sidecar died with
+    # `getaddrinfo ENOTFOUND host.docker.internal` — surfacing as
+    # `classifyComments: unreachable (fetch failed)` on every sync tick that had
+    # unclassified comments, and zero rows in insights_comment_classifications
+    # ever. The env pair above is useless without this mapping; keep them
+    # together. Verify at container start with the
+    # `insights_classifier_preflight` NDJSON line.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Delayed real performance -> Honcho memory. Reads the stored
+  # insights_post_metrics_daily snapshots (NEVER fetches the platform APIs) and
+  # appends a prose observation to peer-brand / session-performance-<jobId> via
+  # recordPerformanceEvent — the material the brand-profile dialectic query
+  # reads back into the strategy prompt.
+  # Gated by HONCHO_WRITE_PUBLISH_ENABLED (recordPerformanceEvent self-gates).
+  # Observes each post at 24h / 7d / 28d; ARIES_INSIGHTS_513_TABLES_PRESENT=0
+  # is the kill switch.
+  aries-honcho-performance-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["npx", "tsx", "scripts/automations/honcho-performance-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      APP_INSTANCE_ID: honcho-performance-worker
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      APP_BASE_URL: http://aries-app:${PORT:-3000}
+      NEXTAUTH_URL: http://aries-app:${PORT:-3000}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      HONCHO_ENABLED: ${HONCHO_ENABLED:-true}
+      HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-true}
+      HONCHO_BASE_URL: ${HONCHO_BASE_URL:-}
+      HONCHO_CONTROL_PLANE_JWT: ${HONCHO_CONTROL_PLANE_JWT:-}
+      HONCHO_DATA_PLANE_JWT: ${HONCHO_DATA_PLANE_JWT:-}
+      ARIES_TENANT_PSEUDONYM_SALT: ${ARIES_TENANT_PSEUDONYM_SALT:-}
+      # Insights read-model KILL SWITCH. Unset = ON (the insights_* tables ship
+      # with init-db.js). Set to 0 to stop the due-posts scan entirely.
+      ARIES_INSIGHTS_513_TABLES_PRESENT: ${ARIES_INSIGHTS_513_TABLES_PRESENT:-}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Composio connection reconciler — sweeps connected_accounts rows with
+  # status='pending' updated within GRACE_MINUTES and calls
+  # refreshConnectionStatus so that a slow Composio INITIALIZING→ACTIVE
+  # transition (real cases took up to ~9 min) is reflected in the DB without
+  # operator intervention. Single replica; talks only to Postgres + Composio.
+  # Gated by ARIES_COMPOSIO_RECONCILER_ENABLED (default OFF) — when off it
+  # idles cleanly (no restart loop). Set the flag and recreate the service to
+  # enable; no dry-run is needed (refreshConnectionStatus is already idempotent
+  # and never writes a 'pending' row back as anything other than the live state).
+  aries-composio-reconciler-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/composio-connection-reconciler-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
+      COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      COMPOSIO_DEFAULT_AUTH_CONFIG_ID: ${COMPOSIO_DEFAULT_AUTH_CONFIG_ID:-}
+      COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}
+      COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID: ${COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID:-}
+      COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
+      COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
+      COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}
+      COMPOSIO_X_AUTH_CONFIG_ID: ${COMPOSIO_X_AUTH_CONFIG_ID:-}
+      COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
+      ARIES_COMPOSIO_RECONCILER_ENABLED: ${ARIES_COMPOSIO_RECONCILER_ENABLED:-0}
+      ARIES_COMPOSIO_RECONCILER_INTERVAL_MS: ${ARIES_COMPOSIO_RECONCILER_INTERVAL_MS:-60000}
+      ARIES_COMPOSIO_RECONCILER_GRACE_MINUTES: ${ARIES_COMPOSIO_RECONCILER_GRACE_MINUTES:-30}
+      # Demotion pass: re-verify connections we already advertise as usable, so a
+      # channel that DIES stops showing green. Before this existed `connected`
+      # was terminal and tenant 15's X sat connected for ~28 days after Composio
+      # recorded a permanent refresh failure. Oldest-first rolling audit; an
+      # unreachable Composio never demotes (errors are counted, rows untouched).
+      ARIES_COMPOSIO_RECONCILER_RECHECK_HOURS: ${ARIES_COMPOSIO_RECONCILER_RECHECK_HOURS:-6}
+      ARIES_COMPOSIO_RECONCILER_RECHECK_LIMIT: ${ARIES_COMPOSIO_RECONCILER_RECHECK_LIMIT:-25}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # AA-161 usage rollup + retention — refreshes the hourly/daily/monthly usage
+  # aggregates over task_execution_log and applies the retention policy. Postgres
+  # has no scheduler in this stack (no pg_cron, no Timescale), so the "refresh the
+  # rollups on a cadence" half of the time-series schema is this sidecar. DB-only;
+  # single replica. Two independent gates, both default OFF: the worker idles
+  # cleanly without ARIES_USAGE_ROLLUP_ENABLED, and aggregation runs with nothing
+  # ever deleted until ARIES_USAGE_RETENTION_ENABLED is also set. Enable retention
+  # with ARIES_USAGE_RETENTION_DRY_RUN=1 for one observation cycle first — it is
+  # the only destructive half. Rolls up BEFORE it purges, and the purge refuses to
+  # delete anything at or above the rollup watermark, so raw usage can never be
+  # destroyed before it has been aggregated.
+  aries-usage-rollup-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/usage-rollup-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ARIES_USAGE_ROLLUP_ENABLED: ${ARIES_USAGE_ROLLUP_ENABLED:-0}
+      ARIES_USAGE_ROLLUP_INTERVAL_MS: ${ARIES_USAGE_ROLLUP_INTERVAL_MS:-3600000}
+      ARIES_USAGE_ROLLUP_MAX_HOURS_PER_PASS: ${ARIES_USAGE_ROLLUP_MAX_HOURS_PER_PASS:-168}
+      ARIES_USAGE_ROLLUP_MAX_BACKFILL_DAYS: ${ARIES_USAGE_ROLLUP_MAX_BACKFILL_DAYS:-90}
+      ARIES_USAGE_RETENTION_ENABLED: ${ARIES_USAGE_RETENTION_ENABLED:-0}
+      ARIES_USAGE_RETENTION_DRY_RUN: ${ARIES_USAGE_RETENTION_DRY_RUN:-0}
+      ARIES_USAGE_RAW_RETENTION_DAYS: ${ARIES_USAGE_RAW_RETENTION_DAYS:-90}
+      ARIES_USAGE_HOURLY_RETENTION_DAYS: ${ARIES_USAGE_HOURLY_RETENTION_DAYS:-400}
+      # AA-164 quota alerts: email workspace admins at 80% and 95% of the monthly
+      # allowance. Rides this worker's tick (it already computes the numbers).
+      # Default OFF. Needs RESEND_API_KEY + EMAIL_FROM to deliver, and
+      # APP_BASE_URL for the link in the email. Deduped per company/period/
+      # threshold, so an hourly tick cannot spam a customer.
+      ARIES_QUOTA_ALERTS_ENABLED: ${ARIES_QUOTA_ALERTS_ENABLED:-0}
+      ARIES_FLEET_TENANT_KINDS: ${ARIES_FLEET_TENANT_KINDS:-production}
+      # Email tenant admins when a production connection enters reauthorization
+      # required or stays pending for more than seven days. Durable per-transition
+      # claims keep the hourly sweep from sending duplicates. Default OFF.
+      ARIES_CONNECTION_NUDGES_ENABLED: ${ARIES_CONNECTION_NUDGES_ENABLED:-0}
+      ARIES_PLAN_ENFORCEMENT_METRIC: ${ARIES_PLAN_ENFORCEMENT_METRIC:-tasks}
+      APP_BASE_URL: ${APP_BASE_URL}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+volumes:
+  aries-autoheal-state:
+
+networks:
+  docker_stack:
+    external: true
+    name: docker-stack
+

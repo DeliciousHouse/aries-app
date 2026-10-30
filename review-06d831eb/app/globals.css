@@ -1,0 +1,780 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-manrope), var(--font-inter), ui-sans-serif, sans-serif;
+  --color-background: #050505;
+  --color-primary: #7c3aed;
+  --color-secondary: #a855f7;
+  --color-accent: #c084fc;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer base {
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow-x: clip;
+    background: var(--color-background);
+    color: #fff;
+    font-family: var(--font-sans);
+    line-height: 1.6;
+  }
+
+  body ::selection {
+    background-color: rgba(124, 58, 237, 0.3);
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  /* Keep anchor color/decoration inheritable, but inside @layer base so
+     Tailwind utility classes (e.g. `text-[#11161c]` on a white pill button)
+     can still override. Without this, unlayered selectors beat utilities in
+     the Tailwind v4 cascade and buttons like "Approve launch review" render
+     invisible (white text on white bg). */
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
+
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.text-gradient {
+  background-image: linear-gradient(to right, var(--color-primary), var(--color-secondary), var(--color-accent));
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.marketing-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 600px 400px at 20% 50%, rgba(194, 53, 80, 0.15) 0%, transparent 70%),
+    radial-gradient(ellipse 500px 300px at 80% 30%, rgba(122, 0, 30, 0.2) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* --- Navigation --- */
+.nav-public {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--nav-height);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  background: rgba(13, 10, 11, 0.5);
+  border-bottom: 1px solid var(--aries-glass-border);
+  transition: background var(--duration-normal) var(--ease-out);
+}
+
+.nav-public .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-weight: 700;
+  font-size: var(--text-lg);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nav-logo img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  list-style: none;
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--aries-text-secondary);
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast), background var(--duration-fast);
+  letter-spacing: 0.01em;
+}
+
+.nav-link:hover, .nav-link:focus-visible {
+  color: var(--aries-text-primary);
+  background: var(--aries-ghost);
+}
+
+.nav-link[aria-current="page"] {
+  color: var(--aries-text-primary);
+  background: var(--aries-glass);
+}
+
+.nav-link:focus-visible {
+  outline: 2px solid var(--aries-accent);
+  outline-offset: 2px;
+}
+
+/* --- Buttons --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--ease-out);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--aries-accent);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--aries-crimson);
+  color: var(--aries-white);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 20px rgba(194, 53, 80, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--aries-accent);
+  box-shadow: 0 0 30px rgba(232, 69, 90, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--aries-text-primary);
+  border-color: #FFFFFF;
+  backdrop-filter: blur(8px);
+}
+
+.review-dropdown {
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  background-color: color-mix(in oklab, var(--color-white) 18%, transparent);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--aries-glass);
+  border-color: #FFFFFF;
+  transform: translateY(-1px);
+}
+
+.btn-lg {
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--text-base);
+}
+
+.btn-sm {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+}
+
+/* --- Glass Card --- */
+.glass-card {
+  background: var(--glass-gradient);
+  border: 1px solid var(--aries-glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color var(--duration-normal), transform var(--duration-normal) var(--ease-out);
+}
+
+.glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.glass-card-static {
+  background: var(--glass-gradient);
+  border: 1px solid var(--aries-glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  backdrop-filter: blur(12px);
+}
+
+/* --- Hero Section --- */
+.hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-radial);
+  padding: var(--space-24) var(--space-6) var(--space-16);
+}
+
+.network-sphere {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 130vh;
+  height: 130vh;
+  max-width: 1200px;
+  max-height: 1200px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.15;
+  filter: drop-shadow(0 0 50px rgba(255, 255, 255, 0.1));
+  animation: sphereRotate 60s linear infinite;
+}
+
+@keyframes sphereRotate {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hero-logo {
+  width: 180px;
+  height: 180px;
+  margin-bottom: var(--space-8);
+  animation: heroFadeIn 1.2s var(--ease-out) both;
+  filter: drop-shadow(0 0 40px rgba(255, 255, 255, 0.2));
+}
+
+.hero-title {
+  font-size: var(--text-6xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-bottom: var(--space-6);
+  animation: heroFadeIn 1s var(--ease-out) 0.15s both;
+  color: #FFFFFF;
+}
+
+.hero-brand {
+  display: block;
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--aries-text-secondary);
+  margin-bottom: var(--space-3);
+  animation: heroFadeIn 1s var(--ease-out) 0.05s both;
+}
+
+.hero-subtitle {
+  font-size: var(--text-xl);
+  color: rgba(255, 255, 255, 0.9);
+  max-width: 700px;
+  margin: 0 auto var(--space-12);
+  line-height: 1.6;
+  font-weight: 400;
+  animation: heroFadeIn 1s var(--ease-out) 0.3s both;
+}
+
+.hero-actions {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  justify-content: center;
+  animation: heroFadeIn 1s var(--ease-out) 0.45s both;
+}
+
+@keyframes heroFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Section --- */
+.section {
+  padding: var(--space-24) 0;
+  position: relative;
+  z-index: 1;
+}
+
+.section-header {
+  text-align: center;
+  margin-bottom: var(--space-16);
+}
+
+.section-label {
+  display: inline-block;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #FFFFFF;
+  margin-bottom: var(--space-4);
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.section-title {
+  font-size: var(--text-4xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin-bottom: var(--space-4);
+}
+
+.section-desc {
+  font-size: var(--text-lg);
+  color: var(--aries-text-secondary);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* --- Grid Layouts --- */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-6);
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-6);
+}
+
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-6);
+}
+
+/* --- Feature Card --- */
+.feature-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: rgba(232, 69, 90, 0.12);
+  border: 1px solid rgba(232, 69, 90, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-5);
+}
+
+.feature-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+}
+
+.feature-desc {
+  font-size: var(--text-sm);
+  color: var(--aries-text-secondary);
+  line-height: 1.7;
+}
+
+/* --- Form Styles --- */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.form-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--aries-text-secondary);
+  letter-spacing: 0.01em;
+}
+
+.form-input, .form-textarea, .form-select {
+  padding: var(--space-3) var(--space-4);
+}
+
+.glass {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom right, rgba(124, 58, 237, 0.2), transparent);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.glass-reflection {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 8px 32px 0 rgba(124, 58, 237, 0.2);
+}
+
+.glass-reflection::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to right, transparent, rgba(124, 58, 237, 0.3), transparent);
+  transform: translateX(-160%) skewX(-25deg);
+  animation: shine 4s infinite;
+}
+
+.bg-animate {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(124, 58, 237, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 100% 100%, rgba(192, 132, 252, 0.05) 0%, transparent 50%);
+  background-size: cover;
+}
+
+.hover-gradient-border {
+  transition: all 0.3s ease;
+}
+
+.hover-gradient-border:hover {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.05)) padding-box,
+    linear-gradient(90deg, var(--color-primary), var(--color-secondary), var(--color-primary)) border-box;
+  border-color: transparent;
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.4);
+}
+
+.glow-purple {
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.3), 0 0 40px rgba(168, 85, 247, 0.1);
+}
+
+.donor-shell-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.donor-shell-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom right, rgba(124, 58, 237, 0.2), transparent);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1a1a1a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2a2a2a;
+}
+
+@keyframes shine {
+  0% {
+    transform: translateX(-160%) skewX(-25deg);
+  }
+  30% {
+    transform: translateX(160%) skewX(-25deg);
+  }
+  100% {
+    transform: translateX(160%) skewX(-25deg);
+  }
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.5rem;
+}
+
+.neon-glow {
+  box-shadow: 0 0 15px rgba(123, 97, 255, 0.3);
+}
+
+.text-text-muted {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+@media (min-width: 768px) {
+  .deferred-section {
+    content-visibility: auto;
+    contain-intrinsic-size: 960px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.5rem;
+}
+
+.neon-glow {
+  box-shadow: 0 0 15px rgba(123, 97, 255, 0.3);
+}
+
+.text-text-muted {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   S8-3 / AA-126 (gap F2b) — print-ready weekly report.
+   The cheap PDF path: Cmd+P (or the Print button) on /dashboard/results yields
+   a client-ready document. No PDF-generation infrastructure.
+
+   EVERY rule is scoped behind `body:has([data-print-report])`, so this block is
+   inert on every route that does not render the report. That scoping is the
+   point, not caution: importing a stylesheet from a component is how
+   frontend/insights/insights.css leaked its body styles onto unrelated routes
+   (a known open bug, roadmap S8-5). One of those is enough.
+
+   The app is dark-theme — white text on translucent panels. Browsers drop
+   backgrounds when printing, so without this block the report prints white on
+   white: a stack of blank pages. Everything below is either "make the ink dark"
+   or "stop the app chrome coming with it".
+   ─────────────────────────────────────────────────────────────────────────── */
+@media print {
+  /* Ink on paper. `print-color-adjust: exact` is deliberately NOT set: we want
+     the browser to drop the dark fills, not faithfully reproduce them. */
+  body:has([data-print-report]),
+  body:has([data-print-report]) [data-print-report] {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  /* AA-229/PR2b moved the recap out of its own page and onto /insights as one
+     section among ten. Printing therefore has to drop the other nine, or Cmd+P
+     produces the entire dashboard — hero, filters, goal, trends, the lot —
+     instead of the one-page recap a client is meant to receive.
+     Each direct child of the section column that neither IS nor CONTAINS the
+     report is hidden; the report keeps its place in the flow. */
+  body:has([data-print-report]) .insights-print-page > *:not([data-print-report]):not(:has([data-print-report])) {
+    display: none !important;
+  }
+
+  /* The dashboard surface paints its dark canvas via an INLINE style, which no
+     stylesheet rule outranks without !important. Left alone it is the one dark
+     background that survives onto the page. */
+  body:has([data-print-report]) .insights-surface {
+    background: #fff !important;
+  }
+
+  /* The shell. A fixed sidebar or a full-bleed gradient layer would either
+     overlay the report or paint every page. */
+  body:has([data-print-report]) aside,
+  body:has([data-print-report]) header.sticky,
+  body:has([data-print-report]) [data-print-hidden],
+  body:has([data-print-report]) .print-hidden {
+    display: none !important;
+  }
+
+  /* The full-viewport gradient backdrop behind the shell. */
+  body:has([data-print-report]) > div > .fixed.inset-0 {
+    display: none !important;
+  }
+
+  /* Unclip. <main> and its scroll container are overflow-hidden / overflow-auto,
+     which truncates a printout to ONE page — the single most common reason a
+     long report prints as a single cut-off sheet. Also drop the sidebar indent
+     so the report uses the full page width. */
+  body:has([data-print-report]),
+  body:has([data-print-report]) main,
+  body:has([data-print-report]) main * {
+    overflow: visible !important;
+  }
+  body:has([data-print-report]) main {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    display: block !important;
+    min-height: 0 !important;
+  }
+
+  /* framer-motion mounts the route content at opacity 0 / translateY and
+     animates in. A print issued before (or during) that animation would
+     otherwise capture an invisible or offset page. */
+  body:has([data-print-report]) main * {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* Panels: readable outlines instead of translucent fills, and no shadow or
+     blur (both cost ink and render as grey mud). */
+  [data-print-report] section,
+  [data-print-report] [class*="rounded-"] {
+    background: #fff !important;
+    border-color: #d4d4d8 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* The dark theme sets text via dozens of white/NN opacity utilities. Rather
+     than chase each, re-assert the two tones the report actually uses. */
+  [data-print-report] * {
+    color: #111 !important;
+    text-shadow: none !important;
+  }
+  [data-print-report] p[class*="text-white/4"],
+  [data-print-report] p[class*="text-white/5"],
+  [data-print-report] [class*="text-xs"] {
+    color: #52525b !important;
+  }
+
+  /* Keep a metric and its label on the same sheet. A "Published / 12" card
+     split across a page break is worse than a shorter page. */
+  [data-print-report] section,
+  [data-print-report] section > div > div > div {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  [data-print-report] h2 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* A permalink is a dead end on paper unless the URL comes with it. Applied
+     only to real outbound post links — not to in-app hrefs, which are noise. */
+  [data-print-report] a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 10px;
+    color: #52525b !important;
+    word-break: break-all;
+  }
+
+  @page {
+    margin: 16mm 14mm;
+  }
+}

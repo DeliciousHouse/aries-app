@@ -1,0 +1,411 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// types.ts — Shared types for all Insights components
+//
+// These mirror the EXACT response contracts of the backend handlers in
+// backend/insights/*/handler.ts. Note: there is NO top-level `hasData` flag —
+// each section reports emptiness differently (snapshot.hasData, meta.hasData,
+// allCaughtUp, or an empty array). Check the per-section field, never a shared one.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type Period   = "week" | "30day" | "90day";
+export type Platform =
+  | "all"
+  | "instagram"
+  | "facebook"
+  | "youtube"
+  | "x"
+  | "reddit"
+  | "linkedin";
+export type SortKey  = "reach" | "engagement" | "saves" | "shares" | "comments";
+
+/** Fields every successful insights response carries at the top level. */
+export interface ApiBase {
+  status:        "ok" | string;
+  period:        Period;
+  platform?:     Platform;
+  cached?:       boolean;
+  generated_at?: string;
+}
+
+// § Narrative (Hero) — backend/insights/narrative/handler.ts
+export interface NarrativeTopPost {
+  title:       string;
+  platform:    string;
+  metric:      number;
+  metricLabel: string;
+}
+export interface NarrativeData extends ApiBase {
+  // status may also be "not_connected" (with connect_url) for an unconnected platform
+  connect_url?: string;
+  narrative:    string;
+  score:        number;       // Aries Score, 0–100
+  scoreDelta:   number;       // % change vs prior period
+  judgment:     string;
+  periodMeta: {
+    posts:      number;
+    postsLabel: string;
+    comments:   number;
+    hoursSaved: number;
+  };
+  snapshot: {
+    posts:            number;
+    postsLabel:       string;
+    reach:            number;
+    reachDelta:       number;
+    reachLabel:       string;
+    engagementRate:   number;
+    topPost:          NarrativeTopPost | null;
+    unreplied:        number;
+    watchTimeMinutes: number | null;
+    hasData:          boolean;   // ← emptiness flag lives HERE
+  };
+}
+
+// § Goal — backend/insights/goal/handler.ts
+export interface GoalContributor {
+  title:       string;
+  platform:    string;
+  contentType: string | null;
+  metricValue: number;
+  metricLabel: string;
+}
+export interface GoalCategory {
+  contentType: string;
+  label:       string;
+  postCount:   number;
+  metricValue: number;
+  metricLabel: string;
+}
+export interface GoalData extends ApiBase {
+  // status may be "no_goal" (no further fields) when no primary_goal is set
+  goal:            string | null;
+  goalLabel:       string | null;
+  ariesLine:       string;
+  metricValue:     number;
+  metricValuePrev: number;
+  metricLabel:     string;
+  metricDelta:     number;
+  secondaryValue:  number | null;
+  secondaryLabel:  string | null;
+  contributors:    GoalContributor[];   // top posts — used for the this-week view
+  categories:      GoalCategory[];      // grouped by content type — used for 30/90-day
+  hasData:         boolean;             // ← top-level for this section
+  goalInferred?:   boolean;             // Aries guessed the goal — show "confirm in Settings" chip (S1-5)
+}
+
+// § Attention — backend/insights/attention/handler.ts
+export interface AttentionCta {
+  label: string;
+  href?: string;
+  toast?: string;
+}
+export interface AttentionCard {
+  type:         "unreplied" | "opportunity" | "pattern" | "milestone" | "calibrating";
+  tone:         "urgent" | "positive" | "celebrate" | "neutral";
+  badge:        string;
+  icon:         string;
+  title:        string;   // may contain <em> tags → render as HTML
+  body:         string;
+  ctaPrimary:   AttentionCta | null;
+  ctaSecondary: AttentionCta | null;
+}
+export interface AttentionData extends ApiBase {
+  cards:       AttentionCard[];
+  allCaughtUp: boolean;
+  meta: {
+    unreplied:     number;
+    highPerformer: boolean;
+    hasPattern:    boolean;
+    hasMilestone:  boolean;
+    postCount:     number;
+  };
+}
+
+// § Attribution scope — backend/insights/attribution-scope.ts (S4-1)
+// Which post set the Activity and Top sections describe. 'aries' means the
+// window's attribution coverage cleared the threshold and the numbers cover
+// Aries-published posts only; 'all-channel' is the fallback that keeps the
+// sections populated for tenants with unstamped history.
+export interface AttributionScopeMeta {
+  scope:           "aries" | "all-channel";
+  attributedOnly:  boolean;
+  totalPosts:      number;
+  attributedPosts: number;
+  coverage:        number;   // 0–1
+  threshold:       number;   // 0–1
+}
+
+// § Activity — backend/insights/activity/handler.ts
+export interface ContentMixSlice {
+  contentType: string;
+  count:       number;
+  pct:         number;
+}
+export interface ActivityData extends ApiBase {
+  strip: {
+    postsPublished:    number;
+    commentsReceived:  number;
+    commentsHandled:   number;
+    commentsNeedReply: number;
+    highPerformers:    number;
+    hoursSaved:        number;
+  };
+  footerLine: string;
+  contentMix: ContentMixSlice[];
+  meta: {
+    platformCount:         number;
+    platforms:             string[];
+    pendingClassification: number;
+    hasData:               boolean;   // ← emptiness flag lives HERE
+    attribution?:          AttributionScopeMeta;   // absent on pre-v7 cached bodies
+  };
+}
+
+// § Trends — backend/insights/trends/handler.ts
+export interface MetricDisplay {
+  label:          string;
+  icon:           string;
+  headline:       string;
+  headlineSuffix: string;
+  delta:          number | null;
+  deltaLabel:     string | null;
+  supporting:     string;   // HTML-safe
+  interpretation: string;
+}
+export interface TrendsSeries {
+  current: number[];
+  prior:   number[];
+  labels:  string[];
+}
+export interface PlatformSlice {
+  platform: string;
+  value:    number;
+  pct:      number;
+}
+export interface KeyMovement {
+  direction: "up" | "down" | "flat" | "flag";
+  label:     string;
+  value:     string;
+  note:      string;
+}
+export type TrendMetricKey = "reach" | "engagement" | "followers" | "comments" | "visits";
+export interface TrendsData extends ApiBase {
+  metrics: Partial<Record<TrendMetricKey, MetricDisplay>>;
+  series:  Record<TrendMetricKey, TrendsSeries | null>;
+  keyMovements: KeyMovement[];
+  platformBreakdown: Record<TrendMetricKey, PlatformSlice[] | null>;
+  visitsAvailable: boolean;
+  meta: {
+    postCount: number;
+    unreplied: number;
+    hasData:   boolean;   // ← emptiness flag lives HERE
+  };
+}
+
+// § Top Posts — backend/insights/top/handler.ts
+export interface PostSentiment {
+  positive: number;
+  neutral:  number;
+  negative: number;
+}
+export interface TopPost {
+  id:            number;
+  platform:      string;
+  title:         string | null;
+  caption:       string | null;
+  permalink:     string | null;
+  publishedAt:   string;
+  dateLabel:     string;
+  contentType:   string | null;
+  mediaType:     string;
+  reach:         number;
+  engagement:    number;   // %
+  saves:         number;
+  shares:        number;
+  comments:      number;
+  saveRate:      number;
+  multiplier:    number;
+  bestDow:       string | null;
+  sentiment:     PostSentiment | null;
+  followerSplit: string | null;
+  whyItWorked:   string;
+}
+export interface PatternBreakdownSlice {
+  contentType: string;
+  label:       string;
+  count:       number;
+}
+// AA-229/PR2a — reduced projection for the weakest-post card. NOT the full
+// TopPost shape: the backend query only selects these 7 columns, so the other
+// TopPost fields (sentiment, multiplier, bestDow, …) are never computed for it.
+export interface WeakestPost {
+  id:        number;
+  platform:  string;
+  title:     string | null;
+  caption:   string | null;
+  permalink: string | null;
+  reach:     number;
+  metric:    number;   // the active sort metric's raw value for this post
+}
+// AA-229/PR2a — why the ranked set is empty. `reason` is null on the populated
+// path (nothing to explain) and one of the two documented values once the
+// backend has actually distinguished "no account" from "connected but no
+// posts in this window".
+export interface TopAvailability {
+  insightsConnected: boolean;
+  reason: "insights_not_connected" | "no_posts_in_window" | null;
+}
+export interface TopData extends ApiBase {
+  posts:  TopPost[];
+  pattern: {
+    title:     string;
+    takeaway:  string;   // HTML-safe
+    note:      string;
+    breakdown: PatternBreakdownSlice[];
+  };
+  sortBy: SortKey;
+  weakest: WeakestPost | null;   // absent semantics: null below 2 posts, never undefined (pre-v9 caches are invalidated by the TEMPLATE_VERSION bump)
+  meta: {
+    postCount:     number;
+    avgReach:      number;
+    hasData:       boolean;   // ← emptiness flag lives HERE
+    attribution?:  AttributionScopeMeta;   // absent on pre-v8 cached bodies
+    availability:  TopAvailability;
+  };
+}
+
+// § Conversations — backend/insights/conversations/handler.ts (uncached)
+export interface ConversationItem {
+  id:         number;
+  author:     string;
+  avatar:     string;
+  text:       string;
+  postRef:    string;
+  platform:   string;
+  receivedAt: string;
+  timeAgo:    string;
+  tag:        string | null;
+  tagLabel:   string | null;
+  handled:    boolean;
+}
+export interface LeadQualityItem {
+  tag:   string;
+  label: string;
+  note:  string;
+  count: number;
+  tone:  string;
+}
+export interface ConversationsData extends ApiBase {
+  meta: {
+    total:           number;
+    positivePercent: number;
+    needsReply:      number;
+    viewAllLabel:    string;
+  };
+  conversations: ConversationItem[];
+  leadQuality:   LeadQualityItem[];
+}
+
+// § Aries AI Adoption — backend/insights/aries/handler.ts (uncached)
+export interface AriesData extends ApiBase {
+  approvalFlow: {
+    drafts:                  number;
+    firstTry:                number;
+    edited:                  number;
+    rebuilt:                 number;
+    firstTryRate:            number;
+    firstTryRatePriorPeriod: number;
+    weeksOnAries:            number;
+  };
+  learnings: Array<{ icon: string; title: string; body: string }>;
+  learningCurve: {
+    labels: string[];
+    values: number[];
+  };
+}
+
+// § Audience — backend/insights/audience/handler.ts (uncached)
+export interface AudienceScheduleItem {
+  id:           number;
+  scheduledFor: string;
+  platform:     string;
+  title:        string;
+  surface:      string;
+  reason:       string | null;
+  confidence:   string | null;
+}
+export interface AudienceData extends ApiBase {
+  schedule: AudienceScheduleItem[];
+  demographics: {
+    hasData:   boolean;
+    ages:      [string, number][];
+    locations: [string, number][];
+  };
+  activeTimes: {
+    hasData:    boolean;
+    grid:       number[][] | null;   // 7 (Mon..Sun) × 24 (hours), 0–100
+    peakWindow: { day: string; hour: string; score: number } | null;
+    timezone:   string | null;
+  };
+}
+
+// § Weekly Recap — backend/insights/weekly-recap/handler.ts (AA-229/PR2b)
+//
+// Section 10. Own time axis: a `?week=YYYY-WW` ISO week (default = most-recent
+// COMPLETED week), NOT the shared week|30day|90day `period`/`platform` pair —
+// those are ignored. Distinct envelope, not an ApiBase: disabled state is
+// `{ enabled: false }` at 200 (the flag gate precedes tenant resolution), not
+// an ApiBase `status`. Best/weakest post ranking is NOT part of this payload —
+// Section 6 (Top) owns that.
+export interface WeeklyRecapTopChannel {
+  channel: string | null;
+  basis:   "published_count" | "reach";
+  value:   number;
+}
+export interface WeeklyRecapLearning {
+  id:        string;
+  findingId: null;   // always null in the MVP — Honcho finding surfacing is a deferred slice
+  source:    "publish_reliability";
+  title:     string;
+  body:      string;
+}
+export interface WeeklyRecapNextAction {
+  title: string;
+  body:  string;
+  href?: string;
+}
+export interface WeeklyRecapEngagementTrend {
+  direction:         "upward" | "downward" | "flat" | "insufficient_data";
+  currentPostCount:  number;
+  previousPostCount: number;
+  currentAverage:    number | null;
+  previousAverage:   number | null;
+  changePercent:     number | null;
+  computedAt:        string;
+}
+export interface WeeklyRecapReport {
+  week: { iso: string; startYmd: string; endYmd: string; label: string };
+  published: {
+    total:     number;
+    byChannel: Record<string, number>;
+    bySurface: Record<string, number>;
+  };
+  skipped: { total: number; note: string };
+  blocked: {
+    total:             number;
+    failedCount:       number;
+    reconnect:         boolean;
+    reconnectChannels: string[];
+  };
+  // Deliberately its own count, NEVER folded into `blocked` — the platform may
+  // well have received these; the outcome is just unconfirmed.
+  needsReconciliation: { total: number };
+  topChannel:          WeeklyRecapTopChannel;
+  insightsConnected:   boolean;
+  engagementTrend:     WeeklyRecapEngagementTrend | null;
+  learnings:           WeeklyRecapLearning[];
+  nextAction:          WeeklyRecapNextAction | null;
+}
+export type WeeklyRecapData =
+  | { enabled: false }
+  | { enabled: true; report: WeeklyRecapReport };

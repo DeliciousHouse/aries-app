@@ -1,0 +1,357 @@
+import NextAuth, { CredentialsSignin } from "next-auth";
+import Credentials from "next-auth/providers/credentials";
+import Google from "next-auth/providers/google";
+import bcrypt from "bcryptjs";
+import { cookies } from "next/headers";
+
+import { enqueuePartnerAttribution } from "@/backend/partners/outbox";
+import pool from "./lib/db";
+import { resolveAuthRuntimeConfig } from "./lib/auth-runtime-config";
+import {
+  DATABASE_UNAVAILABLE_ERROR,
+  GOOGLE_SIGN_IN_REQUIRED_ERROR,
+} from "./lib/auth-error-message";
+import { ensureUserJourneySchema } from "./lib/auth-user-journey";
+import type { TenantRole } from "./lib/tenant-context";
+import {
+  ensureTenantAccessForUser,
+  findTenantClaimsByEmail,
+  findTenantClaimsByUserId,
+  isTenantRole,
+  missingTenantClaims,
+  normalizeEmail,
+  tenantClaimsErrorRedirect,
+} from "./lib/auth-tenant-membership";
+import { loadTenantTimezoneOrFallback } from "./backend/tenant/business-profile";
+import { isMultiWorkspaceEnabled } from "./backend/tenant/multi-workspace-env";
+import { partnerAttributionEnabled } from "./lib/partner-attribution-env";
+import { PARTNER_REF_COOKIE_NAME, parsePartnerRefCookie } from "./lib/partner-ref-cookie";
+
+const authRuntime = resolveAuthRuntimeConfig(process.env);
+
+class DatabaseUnavailableCredentialsError extends CredentialsSignin {
+  code = DATABASE_UNAVAILABLE_ERROR;
+}
+
+class GoogleSignInRequiredCredentialsError extends CredentialsSignin {
+  code = GOOGLE_SIGN_IN_REQUIRED_ERROR;
+}
+
+function buildLoginErrorUrl(error: string): string {
+  return `/login?error=${encodeURIComponent(error)}`;
+}
+
+if (authRuntime.authUrl) {
+  process.env.NEXTAUTH_URL = process.env.NEXTAUTH_URL ?? authRuntime.authUrl;
+  process.env.AUTH_URL = process.env.AUTH_URL ?? authRuntime.authUrl;
+} else if (process.env.NODE_ENV !== "production") {
+  delete process.env.NEXTAUTH_URL;
+  delete process.env.AUTH_URL;
+}
+
+export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: authRuntime.trustHost,
+  providers: [
+    Credentials({
+      name: "Email and Password",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        let client;
+        const email =
+          typeof credentials?.email === "string" ? credentials.email.trim().toLowerCase() : "";
+        const password =
+          typeof credentials?.password === "string" ? credentials.password : "";
+
+        if (!email || !password) {
+          return null;
+        }
+
+        try {
+          client = await pool.connect();
+          const result = await client.query(
+            `
+              SELECT id, email, full_name, password_hash
+              FROM users
+              WHERE LOWER(email) = LOWER($1)
+              LIMIT 1
+            `,
+            [email],
+          );
+
+          if ((result.rowCount ?? 0) === 0) {
+            // Don't signal "email not found" distinctly — that was a user
+            // enumeration oracle. Return null (generic "Invalid email or
+            // password") just like a wrong-password outcome. The signup CTA
+            // below the login form handles the legitimate "I don't have an
+            // account" UX without needing a server-side signal.
+            return null;
+          }
+
+          const row = result.rows[0] as {
+            id: string | number;
+            email: string;
+            full_name?: string | null;
+            password_hash: string;
+          };
+
+          if (!row.password_hash) {
+            return null;
+          }
+
+          if (row.password_hash === "oauth_managed") {
+            throw new GoogleSignInRequiredCredentialsError();
+          }
+
+          if (!row.password_hash.startsWith("$2")) {
+            return null;
+          }
+
+          const passwordMatches = await bcrypt.compare(password, row.password_hash);
+          if (!passwordMatches) {
+            return null;
+          }
+
+          return {
+            id: String(row.id),
+            email: row.email,
+            name: row.full_name || row.email,
+          };
+        } catch (error) {
+          if (error instanceof CredentialsSignin) {
+            throw error;
+          }
+          console.error("Error during credentials authorization:", error);
+          throw new DatabaseUnavailableCredentialsError();
+        } finally {
+          client?.release();
+        }
+      },
+    }),
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    }),
+  ],
+  callbacks: {
+    async signIn({ user, account }) {
+      if (account?.provider !== "google" && account?.provider !== "credentials") {
+        return true;
+      }
+
+      const email = user.email;
+      if (!email) return false;
+      const normalizedEmail = normalizeEmail(email);
+
+      let client;
+      try {
+        client = await pool.connect();
+        await ensureUserJourneySchema(client);
+        const existingUser = await client.query(
+          "SELECT id, organization_id, role FROM users WHERE LOWER(email) = LOWER($1)",
+          [normalizedEmail],
+        );
+
+        let authenticatedUser =
+          (existingUser.rowCount ?? 0) > 0
+            ? (existingUser.rows[0] as {
+                id: string | number;
+                organization_id?: string | number | null;
+                role?: string | null;
+              })
+            : null;
+
+        if (account.provider === "google") {
+          if ((existingUser.rowCount ?? 0) === 0) {
+            const cookieStore = await cookies();
+            const rawRef = cookieStore.get(PARTNER_REF_COOKIE_NAME)?.value;
+            const partnerRef = rawRef ? parsePartnerRefCookie(rawRef) : null;
+            const emailDomain = normalizedEmail.includes("@")
+              ? normalizedEmail.split("@")[1] ?? null
+              : null;
+
+            await client.query("BEGIN");
+            try {
+              const inserted = await client.query(
+                `
+                INSERT INTO users (
+                  email,
+                  full_name,
+                  password_hash,
+                  onboarding_required,
+                  onboarding_completed_at
+                )
+                VALUES ($1, $2, $3, TRUE, NULL)
+                RETURNING id, organization_id, role
+              `,
+                [normalizedEmail, user.name || "", "oauth_managed"],
+              );
+              authenticatedUser = inserted.rows[0] as {
+                id: string | number;
+                organization_id?: string | number | null;
+                role?: string | null;
+              };
+
+              if (partnerRef && partnerAttributionEnabled()) {
+                await enqueuePartnerAttribution(client, {
+                  userId: String(authenticatedUser.id),
+                  refCode: partnerRef,
+                  name: user.name || "",
+                  email: normalizedEmail,
+                  domain: emailDomain,
+                });
+              }
+
+              await client.query("COMMIT");
+            } catch (insertErr) {
+              await client.query("ROLLBACK");
+              throw insertErr;
+            }
+
+            // Cookie is single-use intent; clear whenever we parsed a valid
+            // ref and successfully created the user, regardless of whether
+            // the outbox row got written (delivery config can be partial).
+            if (partnerRef) {
+              cookieStore.delete(PARTNER_REF_COOKIE_NAME);
+            }
+          }
+        } else if ((existingUser.rowCount ?? 0) === 0) {
+          return false;
+        }
+
+        if (!authenticatedUser) {
+          return false;
+        }
+
+        await ensureTenantAccessForUser(client, {
+          userId: authenticatedUser.id,
+          organizationId: authenticatedUser.organization_id,
+          role: authenticatedUser.role,
+          name: user.name,
+          email: normalizedEmail,
+        });
+
+        const tenantClaims = await findTenantClaimsByUserId(
+          client,
+          Number(authenticatedUser.id),
+        );
+        const missingClaims = missingTenantClaims(tenantClaims);
+        if (missingClaims.length > 0) {
+          // Multi-workspace (flag ON): a zero-membership account is a TYPED
+          // state, not a corrupt one (plan Decision 7). Sign-in proceeds with
+          // no tenant claims; the post-login journey / onboarding gate route
+          // to the workspace chooser instead of minting a personal org. The
+          // TenantClaimsIncomplete hard-fail below stays reserved for
+          // genuinely corrupt rows (and is the only flag-OFF behavior).
+          if (isMultiWorkspaceEnabled() && tenantClaims && !tenantClaims.organization_id) {
+            return true;
+          }
+          console.error("Authenticated user is missing required tenant claims after sign-in.", {
+            provider: account.provider,
+            email: normalizedEmail,
+            userId: String(authenticatedUser.id),
+            missingClaims,
+          });
+          return tenantClaimsErrorRedirect(missingClaims);
+        }
+
+        return true;
+      } catch (err) {
+        console.error(`Error during ${account?.provider || "auth"} sign in:`, err);
+        return buildLoginErrorUrl(DATABASE_UNAVAILABLE_ERROR);
+      } finally {
+        client?.release();
+      }
+    },
+    async jwt({ token, user }) {
+      const hydrateTenantClaimsByUserId = async (userId: string) => {
+        const client = await pool.connect();
+        try {
+          const row = await findTenantClaimsByUserId(client, userId);
+          if (!row || missingTenantClaims(row).length > 0) {
+            // Multi-workspace (flag ON): the hydrate must CLEAR tenant claims
+            // when membership resolution returns none (plan eng finding 8) —
+            // a set-only hydrate would leave ghost tenantId/tenantRole in the
+            // token indefinitely and feed the DB-outage claims fallback after
+            // a removal. workspaceCount rides the same resolution row (no
+            // extra query). Flag OFF (no workspace_count on the row) this
+            // stays byte-identical to today's set-only behavior.
+            if (isMultiWorkspaceEnabled()) {
+              delete token.tenantId;
+              delete token.tenantSlug;
+              delete token.tenantRole;
+              delete token.timezone;
+              token.workspaceCount =
+                typeof row?.workspace_count === "number" ? row.workspace_count : 0;
+            }
+            return;
+          }
+
+          token.tenantId = String(row.tenant_id);
+          token.tenantSlug = row.tenant_slug as string;
+          token.tenantRole = row.role as TenantRole;
+          token.timezone = loadTenantTimezoneOrFallback(String(row.tenant_id));
+          if (typeof row.workspace_count === "number") {
+            token.workspaceCount = row.workspace_count;
+          }
+        } finally {
+          client.release();
+        }
+      };
+
+      if (user?.email) {
+        const client = await pool.connect();
+        try {
+          const row = await findTenantClaimsByEmail(client, normalizeEmail(user.email));
+
+          if (row) {
+            token.userId = String(row.user_id);
+            if (missingTenantClaims(row).length === 0) {
+              token.tenantId = String(row.tenant_id);
+              token.tenantSlug = row.tenant_slug as string;
+              token.tenantRole = isTenantRole(row.role) ? row.role : undefined;
+              token.timezone = loadTenantTimezoneOrFallback(String(row.tenant_id));
+            }
+          }
+        } finally {
+          client.release();
+        }
+      } else if (!token.userId && token.sub) {
+        token.userId = token.sub;
+      }
+
+      if (token.userId) {
+        await hydrateTenantClaimsByUserId(String(token.userId));
+      }
+
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user && token.userId) {
+        session.user.id = String(token.userId);
+      }
+      if (session.user && token.tenantId && token.tenantSlug && token.tenantRole) {
+        session.user.tenantId = String(token.tenantId);
+        session.user.tenantSlug = String(token.tenantSlug);
+        session.user.role = isTenantRole(token.tenantRole) ? token.tenantRole : undefined;
+      }
+      if (session.user && token.tenantId) {
+        session.user.timezone = loadTenantTimezoneOrFallback(String(token.tenantId));
+      }
+      // Multi-workspace: only ever present when the membership-aware
+      // resolution (flag ON) stamped it on the token; lets the shell decide
+      // whether to render a switcher without an extra fetch (plan Phase 1).
+      if (session.user && typeof token.workspaceCount === "number") {
+        session.user.workspaceCount = token.workspaceCount;
+      }
+
+      return session;
+    },
+  },
+  pages: {
+    signIn: "/login",
+    error: "/login",
+  },
+});

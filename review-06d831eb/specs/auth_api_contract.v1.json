@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specs/auth_api_contract.v1.json",
+  "artifact_name": "auth_api_contract",
+  "artifact_type": "backend_contract_spec",
+  "schema_version": "1.0.0",
+  "contract_scope": "auth_foundation",
+  "compatibility": {
+    "bootstrap_contracts_compatibility": "non_breaking_addition",
+    "validated_workflow_impact": "none",
+    "notes": [
+      "Auth routes are defined under /api/auth/* and do not alter existing onboarding/marketing/video contracts.",
+      "No existing status vocabulary, workflow wiring, or runtime artifact names are changed.",
+      "This contract is intentionally foundation-only: it defines request/response boundaries without implementation details."
+    ]
+  },
+  "response_shape_file": "./specs/auth_response_shapes.v1.json",
+  "status_vocabularies": {
+    "auth_status_values": [
+      "ok",
+      "error"
+    ],
+    "session_status_values": [
+      "active",
+      "expired",
+      "revoked",
+      "pending"
+    ],
+    "token_type_values": [
+      "Bearer"
+    ],
+    "challenge_type_values": [
+      "password",
+      "otp",
+      "magic_link",
+      "unknown",
+      "totp",
+      "sms",
+      "email"
+    ]
+  },
+  "routes": [
+    {
+      "operationId": "postAuthSessionStart",
+      "method": "POST",
+      "path": "/api/auth/session/start",
+      "requestSchemaRef": "./auth_response_shapes.v1.json#/$defs/StartSessionRequest",
+      "responses": {
+        "200": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/StartSessionSuccess"
+        },
+        "400": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "401": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "429": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "500": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        }
+      }
+    },
+    {
+      "operationId": "getAuthSessionById",
+      "method": "GET",
+      "path": "/api/auth/session/:sessionId",
+      "pathParamsSchemaRef": "./auth_response_shapes.v1.json#/$defs/SessionPathParams",
+      "responses": {
+        "200": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/GetSessionSuccess"
+        },
+        "400": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "404": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "500": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        }
+      }
+    },
+    {
+      "operationId": "postAuthSessionRefresh",
+      "method": "POST",
+      "path": "/api/auth/session/:sessionId/refresh",
+      "pathParamsSchemaRef": "./auth_response_shapes.v1.json#/$defs/SessionPathParams",
+      "requestSchemaRef": "./auth_response_shapes.v1.json#/$defs/RefreshSessionRequest",
+      "responses": {
+        "200": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/RefreshSessionSuccess"
+        },
+        "400": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "401": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "404": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "500": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        }
+      }
+    },
+    {
+      "operationId": "postAuthSessionRevoke",
+      "method": "POST",
+      "path": "/api/auth/session/:sessionId/revoke",
+      "pathParamsSchemaRef": "./auth_response_shapes.v1.json#/$defs/SessionPathParams",
+      "requestSchemaRef": "./auth_response_shapes.v1.json#/$defs/RevokeSessionRequest",
+      "responses": {
+        "200": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/RevokeSessionSuccess"
+        },
+        "400": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "401": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "404": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "500": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        }
+      }
+    },
+    {
+      "operationId": "authSignIn",
+      "method": "POST",
+      "path": "/api/auth/sign-in",
+      "requestSchemaRef": "./auth_response_shapes.v1.json#/$defs/StartSessionRequest",
+      "responses": {
+        "200": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/StartSessionSuccess"
+        },
+        "400": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "401": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "429": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "500": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        }
+      }
+    },
+    {
+      "operationId": "authVerifyMfa",
+      "method": "POST",
+      "path": "/api/auth/mfa/verify",
+      "requestSchemaRef": "./auth_response_shapes.v1.json#/$defs/RefreshSessionRequest",
+      "responses": {
+        "200": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/RefreshSessionSuccess"
+        },
+        "400": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "401": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "404": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        },
+        "500": {
+          "$ref": "./auth_response_shapes.v1.json#/$defs/AuthError"
+        }
+      }
+    }
+  ]
+}

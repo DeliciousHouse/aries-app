@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "phase_conductor_spec.v1",
+  "title": "Aries Phase Conductor Spec v1",
+  "description": "Persistent, gate-driven phase conductor contract for ROADMAP.md execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "roadmap_path",
+    "progress_path",
+    "phase_order",
+    "phase_gate_policy",
+    "status_domain",
+    "transition_rules",
+    "failure_policy",
+    "parallel_lane_policy",
+    "artifact_policy"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "roadmap_path": {
+      "type": "string",
+      "const": "./ROADMAP.md"
+    },
+    "progress_path": {
+      "type": "string",
+      "const": "./generated/validated/project-progress.json"
+    },
+    "phase_order": {
+      "type": "array",
+      "minItems": 7,
+      "items": {
+        "type": "string",
+        "enum": [
+          "phase_1_fix_frontend_wireup_drift",
+          "phase_2_rerun_frontend_validator",
+          "phase_3_end_to_end_ui_smoke",
+          "phase_4_polish_operational_frontend",
+          "phase_5_verify_backend_behavior_against_live_ui",
+          "phase_6_package_repo_for_production_openclaw_import",
+          "phase_7_prepare_production_deployment_handoff"
+        ]
+      }
+    },
+    "phase_gate_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "must_not_skip_gates",
+        "advance_only_on_pass",
+        "stop_on_hard_failure"
+      ],
+      "properties": {
+        "must_not_skip_gates": {
+          "type": "boolean",
+          "const": true
+        },
+        "advance_only_on_pass": {
+          "type": "boolean",
+          "const": true
+        },
+        "stop_on_hard_failure": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "status_domain": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "in_progress",
+          "complete",
+          "blocked",
+          "hard_failed"
+        ]
+      }
+    },
+    "transition_rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pending_to_in_progress",
+        "in_progress_to_complete",
+        "in_progress_to_blocked",
+        "blocked_to_in_progress",
+        "any_to_hard_failed"
+      ],
+      "properties": {
+        "pending_to_in_progress": {
+          "type": "string"
+        },
+        "in_progress_to_complete": {
+          "type": "string"
+        },
+        "in_progress_to_blocked": {
+          "type": "string"
+        },
+        "blocked_to_in_progress": {
+          "type": "string"
+        },
+        "any_to_hard_failed": {
+          "type": "string"
+        }
+      }
+    },
+    "failure_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_bounded_retries_per_phase",
+        "hard_failure_artifact"
+      ],
+      "properties": {
+        "max_bounded_retries_per_phase": {
+          "type": "integer",
+          "minimum": 0,
+          "const": 3
+        },
+        "hard_failure_artifact": {
+          "type": "string",
+          "const": "./generated/draft/heartbeat-defect-report.json"
+        }
+      }
+    },
+    "parallel_lane_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_only_when_blocked",
+        "must_be_approved_lane",
+        "must_be_independent_scope"
+      ],
+      "properties": {
+        "allowed_only_when_blocked": {
+          "type": "boolean",
+          "const": true
+        },
+        "must_be_approved_lane": {
+          "type": "boolean",
+          "const": true
+        },
+        "must_be_independent_scope": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "artifact_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "do_not_redesign_validated_artifacts",
+        "patch_only_failing_sections"
+      ],
+      "properties": {
+        "do_not_redesign_validated_artifacts": {
+          "type": "boolean",
+          "const": true
+        },
+        "patch_only_failing_sections": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    }
+  }
+}

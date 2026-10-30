@@ -1,0 +1,2521 @@
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+
+import { enforcePlanLimitOrThrow } from '@/backend/billing/usage-entitlement';
+import {
+  normalizeWeeklySocialContentPayload,
+  sanitizeWeeklySocialContentPayload,
+} from '@/backend/social-content/payload';
+import {
+  SOCIAL_CONTENT_DEFAULT_SCOPE,
+  SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+  SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+} from '@/backend/social-content/defaults';
+import { buildSocialCopyFinalizeRequest } from '@/backend/social-content/copy-finalize-request';
+import {
+  approvalStepFromWorkflowStepId,
+  ensureSocialContentRuntimeState,
+  markSocialContentApprovalResolutionSubmitted,
+  markSocialContentStageFailed,
+  markSocialContentStageCompleted,
+  markSocialContentStageRunning,
+} from '@/backend/social-content/runtime-state';
+import type { SocialContentApprovalStep } from '@/backend/social-content/types';
+import {
+  COMPETITOR_URL_INVALID_ERROR,
+  COMPETITOR_URL_SOCIAL_ERROR,
+  normalizeMetaLocatorUrl,
+  normalizeMetaPageId,
+  validateCanonicalCompetitorUrl,
+} from '@/lib/marketing-competitor';
+import {
+  describeMarketingResumeToken,
+  type MarketingWorkflowEnvelope,
+} from './workflow-envelope';
+import { getMarketingExecutionPort, type MarketingExecutionPort, type MarketingExecutionResult } from './execution-port';
+import { assertMarketingExecutionPortConfigured, resolveMarketingProviderName } from './provider-guard';
+import {
+  MarketingApprovalLockError,
+  createMarketingApprovalRecord,
+  findLatestMarketingApprovalRecord,
+  loadMarketingApprovalRecord,
+  saveMarketingApprovalRecord,
+  withMarketingApprovalLock,
+  type MarketingApprovalRecord,
+  type MarketingApprovalResolution,
+} from './approval-store';
+import {
+  collectProductionReviewArtifacts,
+  collectPublishReviewArtifacts,
+  collectResearchStageArtifacts,
+  collectStrategyReviewArtifacts,
+} from './artifact-collector';
+import { createSocialContentJobFacts } from './job-facts';
+import {
+  appendHistory,
+  assertMarketingRuntimeSchemas,
+  clearApprovalCheckpoint,
+  createSocialContentJobRuntimeDocument,
+  defaultPublishConfig,
+  getStageRecord,
+  loadSocialContentJobRuntime,
+  markStageAwaitingApproval,
+  markStageCompleted,
+  markStageInProgress,
+  markStageRequiresChannelConnection,
+  nowIso,
+  marketingBrandKitReferenceFromTenantBrandKit,
+  recordApproval,
+  recordApprovalDenied,
+  recordStageFailure,
+  resetStageForRetry,
+  saveSocialContentJobRuntime,
+  setJobRunning,
+  asRecord,
+  asString,
+  type MarketingApprovalCheckpoint,
+  type SocialContentJobRuntimeDocument,
+  type MarketingPublishConfig,
+  type MarketingStageArtifact,
+  type MarketingStageRecord,
+  type MarketingStage,
+} from './runtime-state';
+import pool from '@/lib/db';
+import {
+  isAnyPlatformPublishEnabled,
+  isPlatformNativeContentEnabled,
+} from '@/backend/integrations/providers/integration-config';
+import { tenantNeedsChannelConnection } from '@/lib/tenant-needs-channel-connection';
+import { resolvePrimaryPublishPlatforms } from './primary-publish-platforms';
+import { applyPrimaryPlatformResolutionToWeeklyDoc } from './platform-native-content';
+import {
+  extractAndSaveTenantBrandKit,
+  loadTenantBrandKit,
+  tenantBrandKitPath,
+  type TenantBrandKit,
+} from './brand-kit';
+import { invalidateValidatedProfilesIfSourceChanged } from './validated-profile-store';
+import { isPerStageJobTypeFallbackEnabled } from './per-stage-job-type-fallback-env';
+import { submitMarketingResearchMemoryJob } from '@/backend/memory/submit-marketing-research-job';
+import type { TenantRole } from '@/lib/tenant-context';
+import { scheduleMarketingApprovalHonchoWrites } from '@/backend/memory/write-events';
+import {
+  createExecutionRunRecord,
+  loadExecutionRunRecord,
+  markExecutionRunFailed,
+  markExecutionRunSubmitted,
+} from '@/backend/execution/run-store';
+import { maybeFireWeeklyReelJob } from '@/backend/marketing/weekly-reel-trigger';
+import { deriveAndPersistPostingTimes } from '@/backend/marketing/posting-time-advisor';
+
+export type StartSocialContentJobRequest = {
+  tenantId: string;
+  jobType: 'weekly_social_content' | 'one_off_post' | 'one_off_campaign';
+  /** Optional. User id of the authenticated caller that initiated the
+   * campaign. Persisted on the runtime document so the campaign delete
+   * permission check can allow the creator to delete their own campaigns
+   * (in addition to tenant_admin users). */
+  createdBy?: string | null;
+  payload: {
+    brandUrl?: unknown;
+    competitorUrl?: unknown;
+    competitorBrand?: unknown;
+    facebookPageUrl?: unknown;
+    adLibraryUrl?: unknown;
+    metaPageId?: unknown;
+    competitorFacebookUrl?: unknown;
+    [key: string]: unknown;
+  };
+};
+
+export type StartSocialContentJobResponse = {
+  status: 'accepted' | 'needs_connection';
+  immediateSubmissionStatus?: 'accepted' | 'failed';
+  jobId: string;
+  tenantId: string;
+  jobType: 'weekly_social_content' | 'one_off_post' | 'one_off_campaign';
+  runtimeArtifactPath: string;
+  approvalRequired: boolean;
+  currentStage: MarketingStage;
+  approval: MarketingApprovalCheckpoint | null;
+  reason?: string;
+  message?: string;
+};
+
+export type ApproveSocialContentJobRequest = {
+  jobId: string;
+  tenantId: string;
+  approvedBy: string;
+  approvedStages?: Array<'research' | 'strategy' | 'production' | 'publish'>;
+  approvalId?: string;
+  approvalStep?: SocialContentApprovalStep;
+  approved?: boolean;
+  resumePublishIfNeeded?: boolean;
+  publishConfig?: Partial<MarketingPublishConfig>;
+  /** Server-derived from tenant context. Never read from request body. */
+  memoryActorUserId?: string;
+  tenantSlug?: string;
+  memoryActorRole?: TenantRole;
+};
+
+export type ApproveSocialContentJobResponse = {
+  status: 'resumed' | 'already_resolved' | 'denied' | 'error';
+  jobId: string;
+  tenantId: string;
+  resumedStage: MarketingStage | null;
+  completed: boolean;
+  approvalId?: string | null;
+  reason?: string;
+};
+
+export type DenySocialContentJobRequest = {
+  jobId: string;
+  tenantId: string;
+  deniedBy: string;
+  approvalId?: string;
+  note?: string;
+  denialReasonCode?: string | null;
+  denialNote?: string | null;
+  /** Server-derived from tenant context. Never read from request body. */
+  memoryActorUserId?: string;
+  tenantSlug?: string;
+  memoryActorRole?: TenantRole;
+  publishConfig?: Partial<MarketingPublishConfig>;
+};
+
+function marketingStageForHonchoMirror(
+  stage: MarketingStage,
+): 'strategy' | 'production' | 'publish' | null {
+  if (stage === 'strategy' || stage === 'production' || stage === 'publish') return stage;
+  return null;
+}
+
+type WorkflowApprovalStepId =
+  | 'approve_stage_2'
+  | 'approve_stage_3'
+  | 'approve_stage_4'
+  | 'approve_stage_4_publish';
+
+function runtimeBrandKitReference(
+  brandKit: TenantBrandKit,
+  filePath: string
+): NonNullable<SocialContentJobRuntimeDocument['brand_kit']> {
+  return marketingBrandKitReferenceFromTenantBrandKit(brandKit, filePath);
+}
+
+async function ensureRuntimeBrandKit(doc: SocialContentJobRuntimeDocument): Promise<void> {
+  if (doc.brand_kit) {
+    return;
+  }
+
+  const brandUrl = doc.inputs.brand_url?.trim();
+  if (!brandUrl) {
+    return;
+  }
+
+  const existingBrandKit = await loadTenantBrandKit(doc.tenant_id);
+  if (existingBrandKit && existingBrandKit.source_url === brandUrl) {
+    doc.brand_kit = runtimeBrandKitReference(existingBrandKit, tenantBrandKitPath(doc.tenant_id));
+    return;
+  }
+
+  const { brandKit, filePath } = await extractAndSaveTenantBrandKit({
+    tenantId: doc.tenant_id,
+    brandUrl,
+  });
+  doc.brand_kit = runtimeBrandKitReference(brandKit, filePath);
+}
+
+function runtimeArtifactPath(jobId: string): string {
+  return `generated/draft/marketing-jobs/${jobId}.json`;
+}
+
+function makeSocialContentJobId(): string {
+  return `mkt_${randomUUID()}`;
+}
+
+function stringValue(value: unknown, fallback = ''): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function ensureSocialContentJobInput(input: StartSocialContentJobRequest): { brandUrl: string; businessType: string; competitorUrl: string } {
+  const brandUrl = stringValue(input.payload?.brandUrl);
+  const businessType = stringValue(input.payload?.businessType);
+  const missing: string[] = [];
+  if (!brandUrl) missing.push('payload.brandUrl');
+  if (!businessType) missing.push('payload.businessType');
+  if (missing.length > 0) {
+    throw new Error(`missing_required_fields:${missing.join(',')}`);
+  }
+
+  const competitorValidation = validateCanonicalCompetitorUrl(
+    typeof input.payload?.competitorUrl === 'string' ? input.payload.competitorUrl : null,
+  );
+  if (competitorValidation.error === COMPETITOR_URL_SOCIAL_ERROR || competitorValidation.error === COMPETITOR_URL_INVALID_ERROR) {
+    throw new Error(competitorValidation.error);
+  }
+  return {
+    brandUrl,
+    businessType,
+    competitorUrl: competitorValidation.normalized || brandUrl,
+  };
+}
+
+function integerPayloadValue(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function weeklyMediaDemand(payload: Record<string, unknown>): {
+  imageCreativeCount: number;
+  videoRenderCount: number;
+} {
+  const imageCreativeCount = Math.min(
+    SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count,
+    integerPayloadValue(
+      payload.imageCreativeCount ?? payload.imageCreativesCount,
+      SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count,
+    ),
+  );
+  const renderFlag =
+    typeof payload.renderVideoAfterApproval === 'boolean'
+      ? payload.renderVideoAfterApproval
+      : typeof payload.renderVideoAfterApproval === 'string'
+        ? payload.renderVideoAfterApproval.trim().toLowerCase() === 'true'
+        : false;
+  const videoRenderCount = Math.min(
+    1,
+    integerPayloadValue(
+      payload.videoRenderCount ?? (renderFlag ? 1 : undefined),
+      SOCIAL_CONTENT_DEFAULT_SCOPE.video_render_count,
+    ),
+  );
+  return {
+    imageCreativeCount,
+    videoRenderCount,
+  };
+}
+
+/**
+ * Build the payload that gets persisted as `doc.inputs.request` for a new job.
+ *
+ * AA-222: the weekly path MUST go through `normalizeWeeklySocialContentPayload`,
+ * not bare sanitization. The manual intake route (app/api/marketing/jobs) always
+ * normalized; the worker weekly trigger did not, and its payload carries only
+ * brandUrl/websiteUrl/businessType/publishRequested. With no `storyCount` key on
+ * the persisted request, `readRequestedStoryCount` (synthesize-publish-posts)
+ * fell through to its defensive 0 and the week's story was dropped without a
+ * single log line — contradicting SOCIAL_CONTENT_DEFAULT_SCOPE.story_count = 1.
+ * Normalizing here converges the worker path onto the manual path so every
+ * story-count reader agrees.
+ *
+ * Normalization is idempotent (the manual route double-normalizing is a no-op)
+ * and preserves explicit zeros — the onboarding variant batch sends
+ * `storyCount: 0` and keeps it. One-off jobs (reel companion, one-off campaign)
+ * keep bare sanitization: they are not weekly packages and must not inherit
+ * weekly defaults like a 7-post static count.
+ *
+ * Exported for direct unit testing — driving `startSocialContentJob` end to end
+ * would require the plan gate, brand-kit extraction, and doc persistence.
+ */
+export function prepareStartJobPayload(
+  jobType: StartSocialContentJobRequest['jobType'],
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const requestPayload =
+    jobType === 'weekly_social_content'
+      ? normalizeWeeklySocialContentPayload(payload)
+      : sanitizeWeeklySocialContentPayload(payload);
+  const mediaDemand = weeklyMediaDemand(requestPayload);
+  requestPayload.imageCreativeCount = mediaDemand.imageCreativeCount;
+  requestPayload.imageCreativesCount = mediaDemand.imageCreativeCount;
+  requestPayload.videoRenderCount = mediaDemand.videoRenderCount;
+  requestPayload.renderVideoAfterApproval = mediaDemand.videoRenderCount > 0;
+  return requestPayload;
+}
+
+/**
+ * Client-facing marketing jobs run on the monolithic marketing-pipeline
+ * run/resume contract executed by Hermes. The atomic `marketing_stage*`
+ * workflows remain a separate adapter surface behind `/api/tenant/workflows/*`.
+ */
+export const MARKETING_CLIENT_EXECUTION_MODEL = 'marketing_pipeline_run_resume';
+export const MARKETING_WORKFLOW_NAME = 'marketing-pipeline';
+
+/**
+ * Neutral runtime context recorded on approval records and lifecycle logs.
+ * Hermes manages its own run state, so these fields carry no operational
+ * meaning today; they are retained for the persisted approval-record schema.
+ */
+type MarketingWorkflowRuntimeContext = {
+  sessionKey: string;
+  cwd: string;
+  stateDir: string | null;
+  gatewayUrl: string | null;
+};
+
+/**
+ * Build the structured `one_off_brief` block that one-off campaigns send to
+ * Hermes alongside the brand/competitor args. The submit handler is responsible
+ * for converting raw form dates to tenant-local end-of-day UTC ISO strings (via
+ * `wallTimeToUtc` in `lib/format-timestamp.ts`); this helper reads those
+ * already-converted values out of the runtime document. `days_until_end` is
+ * computed at call time so each stage invocation sees a fresh countdown
+ * (research → strategy → production may span hours; the deadline does not).
+ *
+ * `milestone_date` + `milestone_label` are optional and operator-named. Hermes
+ * receives them as-is so countdown copy can reference whatever the operator
+ * typed -- "Registration deadline" for a hackathon, "Doors open" for a webinar,
+ * "Sale ends" for a flash sale, "Launch day" for a product launch.
+ *
+ * Returns null when the doc is not a one-off campaign OR when the oneOff
+ * payload is missing required fields. A null return means no one_off_brief is
+ * attached -- weekly campaigns and malformed one-off submissions both fall
+ * through to the unmodified weekly args.
+ */
+export function buildOneOffBriefForArgs(
+  doc: SocialContentJobRuntimeDocument,
+): Record<string, unknown> | null {
+  if (doc.job_type !== 'one_off_post' && doc.job_type !== 'one_off_campaign') {
+    return null;
+  }
+  const request = asRecord(doc.inputs.request);
+  const oneOff = request ? asRecord(request.oneOff) : null;
+  if (!oneOff) {
+    return null;
+  }
+  const name = asString(oneOff.name);
+  const campaignEndDate = asString(oneOff.campaignEndDate);
+  const cta = asString(oneOff.cta);
+  if (!name || !campaignEndDate || !cta) {
+    return null;
+  }
+  const milestoneDate = asString(oneOff.milestoneDate);
+  const milestoneLabel = asString(oneOff.milestoneLabel);
+
+  const endMs = Date.parse(campaignEndDate);
+  const nowMs = Date.now();
+  // Math.ceil here keeps "ends tomorrow" surfacing as `1` rather than
+  // collapsing to `0` partway through the day. A passed end date clamps to 0
+  // so the prompt never says "negative days remaining".
+  const daysUntilEnd = Number.isFinite(endMs)
+    ? Math.max(0, Math.ceil((endMs - nowMs) / 86_400_000))
+    : null;
+
+  const out: Record<string, unknown> = {
+    name,
+    campaign_end_date: campaignEndDate,
+    cta,
+    days_until_end: daysUntilEnd,
+  };
+  if (milestoneDate && milestoneLabel) {
+    out.milestone_date = milestoneDate;
+    out.milestone_label = milestoneLabel;
+  }
+  return out;
+}
+
+function socialContentPipelineArgs(doc: SocialContentJobRuntimeDocument): Record<string, unknown> {
+  const facebookPageUrl = doc.inputs.facebook_page_url ?? doc.inputs.competitor_facebook_url ?? '';
+  const oneOffBrief = buildOneOffBriefForArgs(doc);
+  return {
+    brand_url: doc.inputs.brand_url ?? '',
+    competitor_url: doc.inputs.competitor_url ?? '',
+    competitor_brand: doc.inputs.competitor_brand ?? '',
+    facebook_page_url: facebookPageUrl,
+    ad_library_url: doc.inputs.ad_library_url ?? '',
+    meta_page_id: doc.inputs.meta_page_id ?? '',
+    competitor: doc.inputs.competitor_url ?? '',
+    competitor_facebook_url: facebookPageUrl,
+    brand_slug: doc.tenant_id,
+    job_id: doc.job_id,
+    // Correlation id the executor can use to target a cancel signal at this
+    // specific in-flight run. Kept identical to the marketing job id.
+    cancel_correlation_id: doc.job_id,
+    // One-off campaigns attach a structured one_off_brief Hermes can read to
+    // drive countdown framing. Weekly campaigns leave this absent.
+    ...(oneOffBrief ? { one_off_brief: oneOffBrief } : {}),
+  };
+}
+
+function marketingWorkflowRuntimeContext(): {
+  workflowName: string;
+  pipelinePath: string;
+  runtime: MarketingWorkflowRuntimeContext;
+} {
+  return {
+    workflowName: MARKETING_WORKFLOW_NAME,
+    pipelinePath: MARKETING_WORKFLOW_NAME,
+    runtime: {
+      sessionKey: 'main',
+      cwd: '',
+      stateDir: null,
+      gatewayUrl: null,
+    },
+  };
+}
+
+function approvalLifecycleLog(
+  event:
+    | 'workflow-run'
+    | 'approval-created'
+    | 'approval-read'
+    | 'approval-resume-requested'
+    | 'approval-resume-succeeded'
+    | 'approval-resume-failed',
+  input: Record<string, unknown>,
+): void {
+  console.info('[marketing-approval]', {
+    event,
+    ...input,
+  });
+}
+
+function primaryOutputRecord(envelope: MarketingWorkflowEnvelope): Record<string, unknown> {
+  const fromOutput = Array.isArray(envelope.output) ? envelope.output[0] : null;
+  if (fromOutput && typeof fromOutput === 'object' && !Array.isArray(fromOutput)) {
+    return fromOutput as Record<string, unknown>;
+  }
+  // Paused workflows return an empty `output[]`; the per-stage handoff is forwarded
+  // through the approval bridge as the first item so the orchestrator can hydrate
+  // strategy/production/publish stage state from the runtime doc instead of dropping it.
+  const fromItems = Array.isArray(envelope.requiresApproval?.items)
+    ? envelope.requiresApproval.items[0]
+    : null;
+  if (fromItems && typeof fromItems === 'object' && !Array.isArray(fromItems)) {
+    return fromItems as Record<string, unknown>;
+  }
+  return {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+}
+
+function runIdFromPrimaryOutput(primaryOutput: Record<string, unknown>): string | null {
+  return stringValue(primaryOutput.run_id) || null;
+}
+
+function approvalPrompt(envelope: MarketingWorkflowEnvelope, fallback: string): string {
+  return stringValue(envelope.requiresApproval?.prompt) || fallback;
+}
+
+function summarizeResearch(primaryOutput: Record<string, unknown>) {
+  const executiveSummary = (primaryOutput.executive_summary as Record<string, unknown> | undefined) ?? {};
+  return {
+    summary:
+      stringValue(executiveSummary.market_positioning) ||
+      'Competitive research completed and the strongest marketing angle was captured.',
+    highlight: stringValue(executiveSummary.campaign_takeaway) || null,
+  };
+}
+
+function summarizeStrategy(primaryOutput: Record<string, unknown>) {
+  const strategyHandoff = (primaryOutput.strategy_handoff as Record<string, unknown> | undefined) ?? primaryOutput;
+  return {
+    summary:
+      stringValue(strategyHandoff.core_message) ||
+      'Strategy handoff is approved and ready for production.',
+    highlight: stringValue(strategyHandoff.primary_cta) || null,
+    handoff: strategyHandoff,
+  };
+}
+
+function summarizeProduction(primaryOutput: Record<string, unknown>) {
+  const productionHandoff =
+    (primaryOutput.production_handoff as Record<string, unknown> | undefined) ?? primaryOutput;
+  const productionBrief =
+    (productionHandoff.production_brief as Record<string, unknown> | undefined) ?? {};
+  const contractHandoffs =
+    (productionHandoff.contract_handoffs as Record<string, unknown> | undefined) ?? {};
+  const staticHandoff = (contractHandoffs.static as Record<string, unknown> | undefined) ?? {};
+  const videoHandoff = (contractHandoffs.video as Record<string, unknown> | undefined) ?? {};
+  return {
+    summary:
+      stringValue(productionBrief.core_message) ||
+      'Production handoff is approved and ready for publish review.',
+    highlight: `Static contracts: ${stringArray(staticHandoff.platform_contract_paths).length}, Video contracts: ${stringArray(videoHandoff.platform_contract_paths).length}`,
+    handoff: productionHandoff,
+  };
+}
+
+function summarizePublish(primaryOutput: Record<string, unknown>) {
+  const summary = (primaryOutput.summary as Record<string, unknown> | undefined) ?? {};
+  return {
+    summary:
+      stringValue(summary.message) ||
+      'Publish-ready assets were generated successfully.',
+    highlight: null,
+  };
+}
+
+function requestedJobTypeFromDoc(_doc: SocialContentJobRuntimeDocument): 'weekly_social_content' {
+  return 'weekly_social_content';
+}
+
+function marketingStageFromSocialApprovalStep(step: SocialContentApprovalStep): Extract<MarketingStage, 'strategy' | 'production' | 'publish'> {
+  if (step === 'approve_weekly_plan') {
+    return 'strategy';
+  }
+  if (step === 'approve_publish') {
+    return 'publish';
+  }
+  return 'production';
+}
+
+function socialCopyFinalizeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.ARIES_SOCIAL_COPY_FINALIZE_ENABLED?.trim().toLowerCase() ?? '';
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
+type SocialCopyFinalizeSubmissionResult =
+  | {
+      status: 'submitted' | 'reused';
+      ariesRunId: string;
+      hermesRunId: string | null;
+    }
+  | {
+      status: 'skipped';
+      reason: string;
+    };
+
+type SocialCopyFinalizeSubmitter = (
+  doc: SocialContentJobRuntimeDocument,
+) => Promise<SocialCopyFinalizeSubmissionResult>;
+
+let socialContentExecutionPortOverrideForTests: ((doc: SocialContentJobRuntimeDocument) => MarketingExecutionPort) | null = null;
+let socialCopyFinalizeSubmitterForTests: SocialCopyFinalizeSubmitter | null = null;
+
+function resolveSocialContentExecutionPortForDoc(doc: SocialContentJobRuntimeDocument): MarketingExecutionPort {
+  if (socialContentExecutionPortOverrideForTests) {
+    return socialContentExecutionPortOverrideForTests(doc);
+  }
+
+  // Marketing execution is Hermes-only. Fail fast on a misconfigured Hermes
+  // environment so the operator sees a clear error instead of a buried
+  // config-error result at call time.
+  assertMarketingExecutionPortConfigured(process.env);
+  return getMarketingExecutionPort();
+}
+
+async function runSocialContentPipeline(doc: SocialContentJobRuntimeDocument): Promise<MarketingExecutionResult> {
+  const port = resolveSocialContentExecutionPortForDoc(doc);
+  return port.runPipeline({
+    jobId: doc.job_id,
+    doc,
+    argsJson: JSON.stringify(socialContentPipelineArgs(doc)),
+  });
+}
+
+async function resumeMarketingPipeline(
+  resumeToken: string,
+  approve = true,
+  doc: SocialContentJobRuntimeDocument,
+  context: {
+    tenantId?: string | null;
+    jobId?: string | null;
+    approvalId?: string | null;
+    stage?: MarketingStage | null;
+    workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
+  } = {},
+): Promise<MarketingExecutionResult> {
+  const port = resolveSocialContentExecutionPortForDoc(doc);
+  return port.resumePipeline({
+    resumeToken,
+    approve,
+    tenantId: context.tenantId,
+    jobId: context.jobId,
+    approvalId: context.approvalId,
+    stage: context.stage,
+    workflowStepId: context.workflowStepId,
+    approvalStep: context.approvalStep,
+    workflowKey: context.workflowKey,
+  });
+}
+
+function completedMarketingEnvelope(result: MarketingExecutionResult): MarketingWorkflowEnvelope {
+  if (result.kind === 'completed') {
+    const workflowOutput = result.output;
+    if (workflowOutput.ok === false) {
+      const code = typeof workflowOutput.error?.code === 'string'
+        ? workflowOutput.error.code
+        : 'hermes_marketing_execution_failed';
+      const message = typeof workflowOutput.error?.message === 'string' && workflowOutput.error.message.trim().length > 0
+        ? workflowOutput.error.message
+        : 'Hermes marketing execution failed before a run was accepted.';
+      throw new Error(`${code}:${message}`);
+    }
+
+    const normalizedOutput = Array.isArray(workflowOutput.output)
+      ? workflowOutput.output
+      : workflowOutput.output
+        ? [workflowOutput.output]
+        : [];
+    const runId = workflowOutput.runId;
+    const providerEnvelope: MarketingWorkflowEnvelope = {
+      ok: workflowOutput.ok,
+      status: workflowOutput.status,
+      provider: 'hermes',
+      run_id: runId ?? undefined,
+      output: normalizedOutput,
+    };
+
+    if (workflowOutput.approval) {
+      providerEnvelope.requiresApproval = {
+        stage: workflowOutput.approval.stage,
+        workflowStepId: workflowOutput.approval.workflowStepId,
+        prompt: workflowOutput.approval.prompt,
+        resumeToken: workflowOutput.approval.resumeToken,
+      };
+    }
+
+    if (workflowOutput.error) {
+      providerEnvelope.code = workflowOutput.error.code;
+      providerEnvelope.message = workflowOutput.error.message;
+      providerEnvelope.detail = {
+        retryable: workflowOutput.error.retryable,
+      };
+    }
+
+    return providerEnvelope;
+  }
+  return {
+    ok: true,
+    status: 'submitted',
+    provider: 'hermes',
+    aries_run_id: result.ariesRunId,
+    hermes_run_id: result.hermesRunId,
+    output: [],
+  };
+}
+
+function stageApprovalMessage(
+  stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>,
+  fallback: string
+): { title: string; message: string } {
+  if (stage === 'strategy') {
+    return {
+      title: 'Strategy approval required',
+      message: fallback || 'Stage 2 strategy outputs are ready for approval before production can begin.',
+    };
+  }
+  if (stage === 'production') {
+    return {
+      title: 'Production approval required',
+      message: fallback || 'Stage 3 production outputs are ready for approval before publishing can begin.',
+    };
+  }
+  return {
+    title: 'Launch approval required',
+    message: fallback || 'Stage 4 launch review is waiting on approval before publish-ready assets are generated.',
+  };
+}
+
+function publishPausedApprovalMessage(fallback: string): { title: string; message: string } {
+  return {
+    title: 'Publish to Meta (paused) approval required',
+    message: fallback || 'Stage 4 pre-flight is complete. Approve creation of Meta campaigns, ad sets, and ads as paused.',
+  };
+}
+
+function checkpointSummary(
+  title: string,
+  message: string,
+  highlight: string | null | undefined,
+): MarketingStageRecord['summary'] {
+  return {
+    summary: message,
+    highlight: highlight ?? null,
+  };
+}
+
+function approvalRecordPreviewPayload(envelope: MarketingWorkflowEnvelope): unknown {
+  const previewItems = Array.isArray(envelope.requiresApproval?.items) ? envelope.requiresApproval?.items : [];
+  if (previewItems && previewItems.length > 0) {
+    return previewItems;
+  }
+  const primaryOutput = primaryOutputRecord(envelope);
+  return Object.keys(primaryOutput).length > 0 ? primaryOutput : null;
+}
+
+function createAndPersistApprovalCheckpoint(
+  doc: SocialContentJobRuntimeDocument,
+  input: {
+    stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
+    workflowStepId: WorkflowApprovalStepId;
+    title: string;
+    message: string;
+    actionLabel: string;
+    resumeToken: string;
+    envelope: MarketingWorkflowEnvelope;
+    runId: string | null;
+    highlight?: string | null;
+    primaryOutput?: Record<string, unknown> | null;
+    outputs?: Record<string, unknown>;
+    artifacts?: MarketingStageArtifact[];
+    publishConfig?: MarketingPublishConfig | null;
+  },
+): MarketingApprovalRecord {
+  const { workflowName, pipelinePath, runtime } = marketingWorkflowRuntimeContext();
+  const descriptor = describeMarketingResumeToken(input.resumeToken);
+  const approvalRecord = createMarketingApprovalRecord({
+    tenantId: doc.tenant_id,
+    marketingJobId: doc.job_id,
+    workflowName,
+    workflowStepId: input.workflowStepId,
+    socialContentApprovalStep: approvalStepFromWorkflowStepId(input.workflowStepId),
+    marketingStage: input.stage,
+    executionResumeToken: input.resumeToken,
+    executionResumeStateKeys: descriptor.stateKeys,
+    approvalPrompt: input.message,
+    approvalPreviewPayload: approvalRecordPreviewPayload(input.envelope),
+    runtimeContext: {
+      pipelinePath,
+      cwd: runtime.cwd,
+      stateDir: runtime.stateDir,
+      sessionKey: runtime.sessionKey,
+      gatewayUrl: runtime.gatewayUrl,
+    },
+    publishConfig: input.publishConfig ?? null,
+  });
+  saveMarketingApprovalRecord(approvalRecord);
+  approvalLifecycleLog('approval-created', {
+    jobId: doc.job_id,
+    tenantId: doc.tenant_id,
+    stage: input.stage,
+    workflowStepId: input.workflowStepId,
+    approvalId: approvalRecord.approval_id,
+    correlationId: approvalRecord.correlation_id,
+    traceId: approvalRecord.trace_id,
+    tokenFingerprint: approvalRecord.execution_resume_token_fingerprint,
+    tokenStateKeys: approvalRecord.execution_resume_state_keys,
+    sessionKey: approvalRecord.runtime_context.session_key,
+    cwd: approvalRecord.runtime_context.cwd,
+    stateDir: approvalRecord.runtime_context.state_dir,
+    pipelinePath: approvalRecord.runtime_context.pipeline_path,
+  });
+
+  markStageAwaitingApproval(
+    doc,
+    input.stage,
+    {
+      approval_id: approvalRecord.approval_id,
+      workflow_name: approvalRecord.workflow_name,
+      workflow_step_id: approvalRecord.workflow_step_id,
+      title: input.title,
+      message: input.message,
+      action_label: input.actionLabel,
+      publish_config: input.publishConfig ?? null,
+      resume_token: input.resumeToken,
+    },
+    {
+      runId: input.runId,
+      summary: checkpointSummary(input.title, input.message, input.highlight),
+      primaryOutput: input.primaryOutput ?? null,
+      outputs: {
+        ...(input.outputs ?? {}),
+        resume_token: input.resumeToken,
+        approval_id: approvalRecord.approval_id,
+        workflow_step_id: input.workflowStepId,
+      },
+      artifacts: input.artifacts ?? [],
+    },
+  );
+
+  return approvalRecord;
+}
+
+function replacePublishApprovalArtifacts(
+  artifacts: MarketingStageArtifact[] | undefined,
+  replacement?: MarketingStageArtifact,
+): MarketingStageArtifact[] {
+  const nextArtifacts = Array.isArray(artifacts)
+    ? artifacts.filter((artifact) => artifact.category !== 'approval')
+    : [];
+
+  if (replacement) {
+    nextArtifacts.push(replacement);
+  }
+
+  return nextArtifacts;
+}
+
+function activeApprovalRecord(
+  doc: SocialContentJobRuntimeDocument,
+  input: { approvalId?: string | null } = {},
+): MarketingApprovalRecord | null {
+  const checkpoint = doc.approvals.current;
+  const approvalId = input.approvalId?.trim() || checkpoint?.approval_id?.trim() || '';
+  const record = findLatestMarketingApprovalRecord({
+    marketingJobId: doc.job_id,
+    tenantId: doc.tenant_id,
+    approvalId: approvalId || undefined,
+    workflowStepId: checkpoint?.workflow_step_id ?? null,
+    marketingStage: checkpoint?.stage ?? null,
+    statuses: ['pending', 'failed', 'approved', 'denied', 'consumed'],
+  });
+
+  if (record) {
+    approvalLifecycleLog('approval-read', {
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      stage: record.marketing_stage,
+      workflowStepId: record.workflow_step_id,
+      approvalId: record.approval_id,
+      status: record.status,
+      attemptCount: record.attempt_count,
+      tokenFingerprint: record.execution_resume_token_fingerprint,
+      tokenStateKeys: record.execution_resume_state_keys,
+    });
+  }
+
+  return record;
+}
+
+
+/**
+ * Sentinel thrown when a soft-cancel request lands between stages. Callers
+ * (startSocialContentJob + approve/resume paths) catch this and exit without
+ * propagating an error, because the campaign has already been marked
+ * `cancelled` by `applySoftCancelIfRequested`. This keeps the control flow
+ * separate from genuine pipeline failures.
+ */
+class SocialContentJobCancelledError extends Error {
+  constructor(public jobId: string) {
+    super(`marketing_job_cancelled:${jobId}`);
+    this.name = 'SocialContentJobCancelledError';
+  }
+}
+
+/**
+ * Stage-boundary cancel check. Reloads the runtime doc from disk (so we see
+ * `soft_cancel_requested_at` writes that landed via softDeleteSocialContentJob
+ * while this orchestrator call was waiting on an approval) and, if the
+ * cancel has been armed, transitions the job to a terminal `cancelled`
+ * state and throws `SocialContentJobCancelledError` so the caller bails without
+ * starting the next stage.
+ */
+async function applySoftCancelIfRequested(doc: SocialContentJobRuntimeDocument): Promise<void> {
+  const fresh = await loadSocialContentJobRuntime(doc.job_id);
+  const armed = fresh?.soft_cancel_requested_at;
+  if (!armed) {
+    return;
+  }
+  // Mirror the cancel-at timestamp onto the doc the caller is holding so
+  // later logs and the returned envelope reflect it.
+  doc.soft_cancel_requested_at = armed;
+  doc.state = 'completed';
+  doc.status = 'completed';
+  doc.current_stage = doc.current_stage;
+  appendHistory(doc, 'marketing job cancelled via soft-delete', {
+    stage: doc.current_stage,
+    state: 'cancelled',
+    status: 'cancelled',
+  });
+  saveSocialContentJobRuntime(doc.job_id, doc);
+  throw new SocialContentJobCancelledError(doc.job_id);
+}
+
+async function runResearchStage(doc: SocialContentJobRuntimeDocument): Promise<void> {
+  await applySoftCancelIfRequested(doc);
+
+  const researchBridge = await submitMarketingResearchMemoryJob(
+    {
+      tenantId: doc.tenant_id,
+      tenantSlug: '',
+      userId: doc.created_by && String(doc.created_by).trim() ? String(doc.created_by) : 'system',
+      role: 'tenant_admin',
+    },
+    {
+      marketingJobId: doc.job_id,
+      jobType: requestedJobTypeFromDoc(doc),
+      brandUrl: doc.inputs.brand_url,
+      competitorUrl: doc.inputs.competitor_url,
+      competitorBrand: doc.inputs.competitor_brand,
+    },
+  );
+  if (researchBridge.ok) {
+    console.info('[aries-research]', {
+      event: 'marketing_research_submit_succeeded',
+      marketingJobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      ariesResearchJobId: researchBridge.jobId,
+    });
+  } else if (!('skipped' in researchBridge && researchBridge.skipped)) {
+    console.info('[aries-research]', {
+      event: 'marketing_research_submit_failed',
+      marketingJobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      error: 'error' in researchBridge ? researchBridge.error : 'unknown',
+    });
+  }
+
+  setJobRunning(doc, 'research', 'running research stage');
+  markStageInProgress(doc, 'research');
+  saveSocialContentJobRuntime(doc.job_id, doc);
+
+  if (requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
+    approvalLifecycleLog('workflow-run', {
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      stage: 'research',
+      workflowName: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+      provider: 'hermes',
+    });
+  } else {
+    const { runtime, pipelinePath } = marketingWorkflowRuntimeContext();
+    approvalLifecycleLog('workflow-run', {
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      stage: 'research',
+      workflowName: MARKETING_WORKFLOW_NAME,
+      pipelinePath,
+      sessionKey: runtime.sessionKey,
+      cwd: runtime.cwd,
+      stateDir: runtime.stateDir,
+      provider: resolveMarketingProviderName(process.env),
+    });
+  }
+
+  const execution = await runSocialContentPipeline(doc);
+  if (execution.kind === 'submitted') {
+    appendHistory(doc, 'research stage submitted to Hermes', { stage: 'research' });
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  const envelope = completedMarketingEnvelope(execution);
+  const primaryOutput = primaryOutputRecord(envelope);
+  const capture = await collectResearchStageArtifacts(
+    createSocialContentJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    primaryOutput,
+  );
+  const summary = summarizeResearch(primaryOutput);
+  const runId = capture.runId || runIdFromPrimaryOutput(primaryOutput);
+  markStageCompleted(doc, 'research', {
+    runId,
+    summary: capture.summary || summary,
+    primaryOutput,
+    outputs: {
+      ...capture.outputs,
+      envelope,
+    },
+    artifacts: capture.artifacts,
+  });
+  appendHistory(doc, 'research stage completed', { stage: 'research' });
+  saveSocialContentJobRuntime(doc.job_id, doc);
+
+  if (!envelope.requiresApproval?.resumeToken) {
+    throw new Error('marketing_pipeline_missing_resume_token:strategy');
+  }
+
+  const approval = {
+    title: 'Research complete',
+    message: approvalPrompt(envelope, 'Research is complete. Continue to brand analysis.'),
+  };
+  createAndPersistApprovalCheckpoint(doc, {
+    stage: 'strategy',
+    workflowStepId: 'approve_stage_2',
+    title: approval.title,
+    message: approval.message,
+    actionLabel: 'Continue to brand analysis',
+    resumeToken: envelope.requiresApproval.resumeToken,
+    envelope,
+    runId,
+    highlight: summary.highlight,
+    primaryOutput,
+    artifacts: [
+      {
+        id: 'strategy-review',
+        stage: 'strategy',
+        title: 'Brand analysis checkpoint',
+        category: 'approval',
+        status: 'awaiting_approval',
+        summary: approval.message,
+        details: [],
+      },
+    ],
+  });
+  appendHistory(doc, 'strategy stage is awaiting approval', { stage: 'strategy' });
+  saveSocialContentJobRuntime(doc.job_id, doc);
+}
+
+async function finalizeStrategyAndRunProductionReview(
+  doc: SocialContentJobRuntimeDocument,
+  resumeToken: string,
+  context: {
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
+  } = {},
+): Promise<void> {
+  if (!resumeToken) {
+    throw new Error('missing_strategy_resume_token');
+  }
+
+  const execution = await resumeMarketingPipeline(resumeToken, true, doc, {
+    tenantId: doc.tenant_id,
+    jobId: doc.job_id,
+    approvalId: context.approvalId,
+    stage: 'strategy',
+    workflowStepId: context.workflowStepId,
+    approvalStep: context.approvalStep,
+    workflowKey: context.workflowKey,
+  });
+  if (execution.kind === 'submitted') {
+    appendHistory(doc, 'strategy approval submitted to Hermes', { stage: 'strategy' });
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  const envelope = completedMarketingEnvelope(execution);
+  const primaryOutput = primaryOutputRecord(envelope);
+  const strategyReviewCapture = await collectStrategyReviewArtifacts(
+    createSocialContentJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    primaryOutput,
+  );
+  const strategy = summarizeStrategy(primaryOutput);
+  markStageCompleted(doc, 'strategy', {
+    runId: strategyReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'research').run_id,
+    summary: strategyReviewCapture.summary || {
+      summary: strategy.summary,
+      highlight: strategy.highlight,
+    },
+    primaryOutput,
+    outputs: {
+      ...strategyReviewCapture.outputs,
+      strategy_handoff: strategy.handoff,
+    },
+    artifacts: strategyReviewCapture.artifacts,
+  });
+  appendHistory(doc, 'strategy stage approved and finalized', { stage: 'strategy' });
+  saveSocialContentJobRuntime(doc.job_id, doc);
+
+  if (!envelope.requiresApproval?.resumeToken) {
+    throw new Error('marketing_pipeline_missing_resume_token:production');
+  }
+
+  const approval = stageApprovalMessage(
+    'production',
+    approvalPrompt(envelope, 'Strategy is complete. Approve production to continue.')
+  );
+  createAndPersistApprovalCheckpoint(doc, {
+    stage: 'production',
+    workflowStepId: 'approve_stage_3',
+    title: approval.title,
+    message: approval.message,
+    actionLabel: 'Review production',
+    resumeToken: envelope.requiresApproval.resumeToken,
+    envelope,
+    runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,
+    highlight: strategy.highlight,
+    primaryOutput,
+    artifacts: [
+      {
+        id: 'production-review',
+        stage: 'production',
+        title: 'Production approval checkpoint',
+        category: 'approval',
+        status: 'awaiting_approval',
+        summary: approval.message,
+        details: [],
+      },
+    ],
+  });
+  appendHistory(doc, 'production stage is awaiting approval', { stage: 'production' });
+  saveSocialContentJobRuntime(doc.job_id, doc);
+}
+
+function socialCopyFinalizeCallbackUrl(port: MarketingExecutionPort): string {
+  return port.getCallbackUrl();
+}
+
+function activeSocialCopyFinalizeRunId(doc: SocialContentJobRuntimeDocument): string | null {
+  const runId = getStageRecord(doc, 'production').outputs.social_copy_finalize_aries_run_id;
+  return typeof runId === 'string' && runId.trim().length > 0 ? runId.trim() : null;
+}
+
+function socialCopyFinalizeInstructions(): string {
+  return [
+    'You are the Aries marketing execution agent driving the social_copy_finalize workflow.',
+    'Use the provided request JSON to write final image-aware social captions after creative approval.',
+    `Return terminal JSON using workflowKey="${SOCIAL_COPY_FINALIZE_WORKFLOW_KEY}".`,
+    'Preserve post order, post ids, and channels exactly as provided; do not invent or drop posts.',
+    'Every post must include caption, hashtags, cta, and warnings (warnings may be []).',
+    'If the workflow cannot be completed, return ok=false with an error message instead of partial schema drift.',
+  ].join(' ');
+}
+
+async function submitSocialCopyFinalizeRun(
+  doc: SocialContentJobRuntimeDocument,
+): Promise<SocialCopyFinalizeSubmissionResult> {
+  if (socialCopyFinalizeSubmitterForTests) {
+    return socialCopyFinalizeSubmitterForTests(doc);
+  }
+
+  const port = resolveSocialContentExecutionPortForDoc(doc);
+  const callbackUrl = socialCopyFinalizeCallbackUrl(port);
+  const preview = buildSocialCopyFinalizeRequest({
+    doc,
+    ariesRunId: 'arun_preview_social_copy_finalize',
+    callbackUrl,
+  });
+  if (preview.kind === 'skip') {
+    return { status: 'skipped', reason: preview.reason };
+  }
+
+  const existingRunId = activeSocialCopyFinalizeRunId(doc);
+  if (existingRunId) {
+    const existingRun = loadExecutionRunRecord(existingRunId);
+    if (
+      existingRun
+      && existingRun.workflow_key === SOCIAL_COPY_FINALIZE_WORKFLOW_KEY
+      && (existingRun.status === 'submitted' || existingRun.status === 'running' || existingRun.status === 'awaiting_approval')
+    ) {
+      return {
+        status: 'reused',
+        ariesRunId: existingRunId,
+        hermesRunId: existingRun.external_run_id ?? null,
+      };
+    }
+  }
+
+  const run = createExecutionRunRecord({
+    provider: 'hermes',
+    domain: 'marketing',
+    workflowKey: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+    action: 'run',
+    tenantId: doc.tenant_id,
+    marketingJobId: doc.job_id,
+    stage: 'production',
+  });
+  const built = buildSocialCopyFinalizeRequest({
+    doc,
+    ariesRunId: run.aries_run_id,
+    callbackUrl,
+  });
+  if (built.kind !== 'build') {
+    markExecutionRunFailed(run.aries_run_id, {
+      code: 'social_copy_finalize_build_skipped',
+      message: built.reason,
+      retryable: false,
+    });
+    return { status: 'skipped', reason: built.reason };
+  }
+
+  const callbackToken = randomBytes(32).toString('hex');
+  const payload: Record<string, unknown> = {
+    input: [
+      `Workflow: ${built.request.workflow_key}`,
+      'Action: run',
+      `Aries run ID: ${built.request.aries_run_id}`,
+      `Job ID: ${built.request.job_id}`,
+      `Tenant ID: ${built.request.tenant_id}`,
+      `Callback URL: ${built.request.callback_url}`,
+      `Request (JSON): ${JSON.stringify(built.request)}`,
+    ].join('\n'),
+    instructions: socialCopyFinalizeInstructions(),
+    session_id: port.getSessionKey(),
+    workflow_key: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+    callback_url: built.request.callback_url,
+    callback_auth: {
+      type: 'internal_api_secret_bearer',
+      secret_ref: 'INTERNAL_API_SECRET',
+      callback_token: callbackToken,
+    },
+    callback_context: {
+      workflow_key: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+      aries_run_id: run.aries_run_id,
+      job_id: doc.job_id,
+      tenant_id: doc.tenant_id,
+    },
+    idempotency_key: createHash('sha256')
+      .update(`${run.aries_run_id}|${SOCIAL_COPY_FINALIZE_WORKFLOW_KEY}|${doc.tenant_id}`)
+      .digest('hex'),
+  };
+
+  const { ariesRunId, hermesRunId } = await port.submitRawRun({
+    ariesRunId: run.aries_run_id,
+    tenantId: doc.tenant_id,
+    workflowKey: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+    stage: 'production',
+    payload,
+    callbackToken,
+  });
+
+  return {
+    status: 'submitted',
+    ariesRunId,
+    hermesRunId,
+  };
+}
+
+async function continueAfterCreativeReviewApproval(
+  doc: SocialContentJobRuntimeDocument,
+  resumeToken: string,
+  context: {
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
+  } = {},
+): Promise<MarketingStage> {
+  if (!socialCopyFinalizeEnabled()) {
+    markSocialContentStageCompleted(doc, 'social_copy_finalize', {
+      summary: 'Skipped while ARIES_SOCIAL_COPY_FINALIZE_ENABLED is off.',
+      output: { skipped: true, reason: 'feature_flag_disabled' },
+    });
+    await finalizeProductionAndRunPublishReview(doc, resumeToken, context);
+    return 'publish';
+  }
+
+  try {
+    const submission = await submitSocialCopyFinalizeRun(doc);
+    if (submission.status === 'skipped') {
+      markSocialContentStageCompleted(doc, 'social_copy_finalize', {
+        summary: `Skipped social copy finalize: ${submission.reason}.`,
+        output: { skipped: true, reason: submission.reason },
+      });
+      appendHistory(
+        doc,
+        `social copy finalize skipped; resuming weekly pipeline toward publish review (${submission.reason})`,
+        {
+          stage: 'production',
+        },
+      );
+      saveSocialContentJobRuntime(doc.job_id, doc);
+      await finalizeProductionAndRunPublishReview(doc, resumeToken, context);
+      return 'publish';
+    }
+
+    markSocialContentStageRunning(doc, 'social_copy_finalize', {
+      workflow_key: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+      aries_run_id: submission.ariesRunId,
+      hermes_run_id: submission.hermesRunId,
+      status: submission.status,
+    });
+    const productionStage = getStageRecord(doc, 'production');
+    productionStage.outputs = {
+      ...productionStage.outputs,
+      social_copy_finalize_aries_run_id: submission.ariesRunId,
+      social_copy_finalize_hermes_run_id: submission.hermesRunId,
+      social_copy_finalize_workflow_key: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+      social_copy_finalize_status: submission.status,
+      social_copy_finalize_requested_at: nowIso(),
+    };
+    appendHistory(
+      doc,
+      submission.status === 'reused'
+        ? `social copy finalize already in progress; reusing existing Hermes run (${submission.ariesRunId}/${submission.hermesRunId})`
+        : `social copy finalize submitted to Hermes after creative approval (${submission.ariesRunId}/${submission.hermesRunId})`,
+      {
+        stage: 'production',
+      },
+    );
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    return 'production';
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const [code, detail] = message.split(':', 2);
+    markSocialContentStageFailed(
+      doc,
+      'social_copy_finalize',
+      detail || message,
+      {
+        code: code || 'social_copy_finalize_submit_failed',
+        retryable: true,
+      },
+    );
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    throw error;
+  }
+}
+
+async function finalizeProductionAndRunPublishReview(
+  doc: SocialContentJobRuntimeDocument,
+  resumeToken: string,
+  context: {
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
+  } = {},
+): Promise<void> {
+  if (!resumeToken) {
+    throw new Error('missing_production_resume_token');
+  }
+
+  const execution = await resumeMarketingPipeline(resumeToken, true, doc, {
+    tenantId: doc.tenant_id,
+    jobId: doc.job_id,
+    approvalId: context.approvalId,
+    stage: 'production',
+    workflowStepId: context.workflowStepId,
+    approvalStep: context.approvalStep,
+    workflowKey: context.workflowKey,
+  });
+  if (execution.kind === 'submitted') {
+    appendHistory(doc, 'production approval submitted to Hermes', { stage: 'production' });
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  const envelope = completedMarketingEnvelope(execution);
+  const primaryOutput = primaryOutputRecord(envelope);
+  const productionReviewCapture = await collectProductionReviewArtifacts(
+    createSocialContentJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    primaryOutput,
+  );
+  const production = summarizeProduction(primaryOutput);
+  markStageCompleted(doc, 'production', {
+    runId: productionReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,
+    summary: productionReviewCapture.summary || {
+      summary: production.summary,
+      highlight: production.highlight,
+    },
+    primaryOutput,
+    outputs: {
+      ...productionReviewCapture.outputs,
+      production_handoff: production.handoff,
+    },
+    artifacts: productionReviewCapture.artifacts,
+  });
+  appendHistory(doc, 'production stage approved and finalized', { stage: 'production' });
+  saveSocialContentJobRuntime(doc.job_id, doc);
+
+  if (!envelope.requiresApproval?.resumeToken) {
+    throw new Error('marketing_pipeline_missing_resume_token:publish');
+  }
+
+  const approval = stageApprovalMessage(
+    'publish',
+    approvalPrompt(envelope, 'Production is complete. Approve publish to continue.')
+  );
+  createAndPersistApprovalCheckpoint(doc, {
+    stage: 'publish',
+    workflowStepId: 'approve_stage_4',
+    title: approval.title,
+    message: approval.message,
+    actionLabel: 'Approve launch review',
+    resumeToken: envelope.requiresApproval.resumeToken,
+    envelope,
+    runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'production').run_id,
+    highlight: production.highlight,
+    primaryOutput,
+    publishConfig: doc.publish_config,
+    artifacts: [
+      {
+        id: 'launch-review',
+        stage: 'publish',
+        title: 'Launch approval checkpoint',
+        category: 'approval',
+        status: 'awaiting_approval',
+        summary: approval.message,
+        details: [],
+      },
+    ],
+  });
+  appendHistory(doc, 'publish stage is awaiting approval', { stage: 'publish' });
+  saveSocialContentJobRuntime(doc.job_id, doc);
+}
+
+/**
+ * Injectable gate for `advancePublishStage`. Returns `true` when the tenant has
+ * no connected publish channel at all and Stage 4 should short-circuit to
+ * `requires_channel_connection`.
+ *
+ * WHICH channels count is decided by `ARIES_ANY_PLATFORM_PUBLISH_ENABLED`
+ * (AA-217): OFF => Meta/IG only (historical behavior); ON => any platform in
+ * `publishablePlatforms()`, so a LinkedIn-first tenant is no longer blocked
+ * from a week of content. Either way this shares semantics with the dashboard
+ * `channel_not_connected` advisory via `tenantNeedsChannelConnection` — when
+ * the gate emits the advisory, this returns `true`.
+ */
+export type PublishStageChannelGate = (tenantId: string) => Promise<boolean>;
+
+async function defaultPublishStageChannelGate(tenantId: string): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    return await tenantNeedsChannelConnection(client, tenantId);
+  } finally {
+    client.release();
+  }
+}
+
+let publishStageChannelGate: PublishStageChannelGate = defaultPublishStageChannelGate;
+
+/** Test seam: override the publish-stage channel gate. */
+export function __setPublishStageChannelGateForTests(gate: PublishStageChannelGate | null): void {
+  publishStageChannelGate = gate ?? defaultPublishStageChannelGate;
+}
+
+export function __setMarketingExecutionPortForTests(
+  resolver: ((doc: SocialContentJobRuntimeDocument) => MarketingExecutionPort) | null,
+): void {
+  socialContentExecutionPortOverrideForTests = resolver;
+}
+
+export function __setSocialCopyFinalizeSubmitterForTests(
+  submitter: SocialCopyFinalizeSubmitter | null,
+): void {
+  socialCopyFinalizeSubmitterForTests = submitter;
+}
+
+export const __continueAfterCreativeReviewApprovalForTests = (
+  doc: SocialContentJobRuntimeDocument,
+  resumeToken: string,
+  context: Parameters<typeof continueAfterCreativeReviewApproval>[2] = {},
+): Promise<MarketingStage> => continueAfterCreativeReviewApproval(doc, resumeToken, context);
+
+/** Test seam: exposes the internal `advancePublishStage` for unit testing. */
+export const __advancePublishStageForTests = (
+  doc: SocialContentJobRuntimeDocument,
+  resumeToken: string,
+  context: Parameters<typeof advancePublishStage>[2] = {},
+): Promise<void> => advancePublishStage(doc, resumeToken, context);
+
+async function advancePublishStage(
+  doc: SocialContentJobRuntimeDocument,
+  resumeToken: string,
+  context: {
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
+  } = {},
+): Promise<void> {
+  const publishStage = getStageRecord(doc, 'publish');
+  if (!resumeToken) {
+    throw new Error('missing_publish_resume_token');
+  }
+
+  // Channel-connection precheck. If the tenant has no connected publishing
+  // channel, we do NOT submit Stage 4 to Hermes. Stages 1-3 artifacts are
+  // preserved on the doc, the publish stage is marked
+  // `requires_channel_connection`, and we clear any approval checkpoint so the
+  // UI surfaces "connect a channel to enable auto-publish" instead of an
+  // approval prompt.
+  //
+  // The operator-facing copy tracks the flag: while
+  // ARIES_ANY_PLATFORM_PUBLISH_ENABLED is OFF, only Meta can actually unblock
+  // this tenant, so saying "a social account" would send them to connect a
+  // channel that changes nothing.
+  try {
+    const needsConnection = await publishStageChannelGate(String(doc.tenant_id));
+    if (needsConnection) {
+      const anyPlatform = isAnyPlatformPublishEnabled();
+      markStageRequiresChannelConnection(doc, 'publish', {
+        summary: {
+          summary: anyPlatform
+            ? 'Stage 4 is ready. Connect a social account in Settings to enable auto-publish.'
+            : 'Stage 4 is ready. Connect Meta in Settings to enable auto-publish.',
+          highlight: null,
+        },
+        artifactId: 'publish-needs-channel',
+        artifactTitle: anyPlatform ? 'Connect a social account to publish' : 'Connect Meta to publish',
+        outputs: publishStage.outputs,
+      });
+      clearApprovalCheckpoint(doc, 'publish stage waiting on channel connection');
+      appendHistory(doc, 'publish stage paused: no connected publishing channel', {
+        stage: 'publish',
+        state: doc.state,
+        status: doc.status,
+      });
+      saveSocialContentJobRuntime(doc.job_id, doc);
+      return;
+    }
+  } catch (error) {
+    console.warn('[marketing-orchestrator] publish-stage channel gate failed; proceeding', {
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  setJobRunning(doc, 'publish', 'running publish finalize stage');
+  markStageInProgress(doc, 'publish');
+  saveSocialContentJobRuntime(doc.job_id, doc);
+
+  const execution = await resumeMarketingPipeline(resumeToken, true, doc, {
+    tenantId: doc.tenant_id,
+    jobId: doc.job_id,
+    approvalId: context.approvalId,
+    stage: 'publish',
+    workflowStepId: context.workflowStepId,
+    approvalStep: context.approvalStep,
+    workflowKey: context.workflowKey,
+  });
+  if (execution.kind === 'submitted') {
+    appendHistory(doc, 'publish approval submitted to Hermes', { stage: 'publish' });
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  const envelope = completedMarketingEnvelope(execution);
+  const primaryOutput = primaryOutputRecord(envelope);
+  const publishReviewCapture = await collectPublishReviewArtifacts(primaryOutput, doc);
+  const publish = summarizePublish(primaryOutput);
+  if (envelope.requiresApproval?.resumeToken) {
+    const approval = publishPausedApprovalMessage(
+      approvalPrompt(envelope, 'Stage 4 pre-flight is complete. Approve creation of Meta campaigns, ad sets, and ads as paused.')
+    );
+    createAndPersistApprovalCheckpoint(doc, {
+      stage: 'publish',
+      workflowStepId: 'approve_stage_4_publish',
+      title: approval.title,
+      message: approval.message,
+      actionLabel: 'Approve paused publish',
+      resumeToken: envelope.requiresApproval.resumeToken,
+      envelope,
+      runId: publishReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? publishStage.run_id,
+      highlight: publish.highlight,
+      primaryOutput,
+      publishConfig: doc.publish_config,
+      outputs: {
+        ...publishStage.outputs,
+        ...publishReviewCapture.outputs,
+        envelope,
+      },
+      artifacts: [
+        ...replacePublishApprovalArtifacts(publishReviewCapture.artifacts, {
+          id: 'publish-paused-review',
+          stage: 'publish',
+          title: 'Publish to Meta (paused) approval checkpoint',
+          category: 'approval',
+          status: 'awaiting_approval',
+          summary: approval.message,
+          details: [],
+        }),
+      ],
+    });
+    appendHistory(doc, 'publish stage is awaiting paused-publish approval', { stage: 'publish' });
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  markStageCompleted(doc, 'publish', {
+    runId: publishReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? publishStage.run_id,
+    summary: publishReviewCapture.summary || {
+      summary: publish.summary,
+      highlight: publish.highlight,
+    },
+    primaryOutput,
+    outputs: {
+      ...publishStage.outputs,
+      ...publishReviewCapture.outputs,
+      envelope,
+    },
+    artifacts: replacePublishApprovalArtifacts(
+      publishReviewCapture.artifacts.length > 0 ? publishReviewCapture.artifacts : publishStage.artifacts,
+    ),
+  });
+
+  doc.state = 'completed';
+  doc.status = 'completed';
+  doc.current_stage = 'publish';
+  clearApprovalCheckpoint(doc, 'publish approval cleared');
+  appendHistory(doc, 'publish stage completed', { stage: 'publish', state: 'completed', status: 'completed' });
+  saveSocialContentJobRuntime(doc.job_id, doc);
+}
+
+function recordFailure(
+  doc: SocialContentJobRuntimeDocument,
+  stage: MarketingStage,
+  error: unknown
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const [code, detail] = message.split(':', 2);
+  recordStageFailure(doc, stage, {
+    code: code || 'marketing_stage_failed',
+    message: detail || message,
+    retryable: false,
+  });
+  saveSocialContentJobRuntime(doc.job_id, doc);
+}
+
+function handleFailure(
+  doc: SocialContentJobRuntimeDocument,
+  stage: MarketingStage,
+  error: unknown
+): never {
+  recordFailure(doc, stage, error);
+  throw error;
+}
+
+export type RetryResearchStageResult =
+  | { ok: true; jobId: string; status: 'submitted' | 'running' }
+  | { ok: false; reason: 'not_found' | 'not_failed' | 'wrong_stage' | 'execution_failed'; message: string };
+
+/**
+ * Operator-triggered retry for a research-stage failure. Re-enters
+ * `runResearchStage` after resetting the failed stage record so the
+ * orchestrator sees it as never-started. Used by the "Retry research" UX on the
+ * failed-state campaign workspace — without this affordance the user had no
+ * recovery path except creating a fresh campaign from scratch.
+ *
+ * Per the resumability rule, sibling completed stages keep their artifacts;
+ * only the failed research record + top-level error pointers are cleared. If
+ * Hermes is still down (the upstream NoneType bug, etc.), this will fail again
+ * and the user can keep retrying until upstream is healthy.
+ *
+ * The reset+save+re-run is intentionally sequential so a half-applied reset
+ * never races with the orchestrator. Returns a typed result so the API handler
+ * can map directly to HTTP status codes.
+ */
+export async function retryFailedResearchStage(jobId: string): Promise<RetryResearchStageResult> {
+  const doc = await loadSocialContentJobRuntime(jobId);
+  if (!doc) {
+    return { ok: false, reason: 'not_found', message: 'Campaign not found.' };
+  }
+  if (doc.state !== 'failed') {
+    return {
+      ok: false,
+      reason: 'not_failed',
+      message: `Campaign is not in a failed state (state=${doc.state}). Retry is only available for failed campaigns.`,
+    };
+  }
+  if (doc.current_stage !== 'research') {
+    return {
+      ok: false,
+      reason: 'wrong_stage',
+      message: `Retry-research only applies when the research stage failed (current_stage=${doc.current_stage ?? 'none'}).`,
+    };
+  }
+
+  const reset = resetStageForRetry(doc, 'research');
+  if (!reset) {
+    // resetStageForRetry returns false when the stage isn't actually failed —
+    // this can happen if the stage record disagrees with doc.state (concurrent
+    // write between load and reset). Treat as a transient and surface a 409.
+    return {
+      ok: false,
+      reason: 'not_failed',
+      message: 'Research stage is not in a failed state. Refresh and try again.',
+    };
+  }
+  saveSocialContentJobRuntime(doc.job_id, doc);
+
+  try {
+    await runResearchStage(doc);
+    return { ok: true, jobId: doc.job_id, status: 'submitted' };
+  } catch (error) {
+    if (error instanceof SocialContentJobCancelledError) {
+      // An intentional soft-cancel between reset and stage entry. The cancel
+      // path already wrote the cancelled state — surface as execution_failed
+      // with a clear message but DON'T overwrite with a synthetic failure.
+      return {
+        ok: false,
+        reason: 'execution_failed',
+        message: 'Retry submission was cancelled before research could start.',
+      };
+    }
+    // CRITICAL: reset already flipped doc.state to 'queued' and persisted. If
+    // runResearchStage throws (Hermes 5xx, network drop, etc.) without
+    // recording a failure of its own, the on-disk doc would look "queued" and
+    // mislead the dashboard into showing the campaign as in-flight. Re-record
+    // the failure on the same stage so state/status/last_error stay truthful.
+    const message = error instanceof Error ? error.message : String(error);
+    recordStageFailure(doc, 'research', {
+      code: 'marketing_retry_research_failed',
+      message,
+      retryable: true,
+    });
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    return {
+      ok: false,
+      reason: 'execution_failed',
+      message: `Retry submission failed: ${message}`,
+    };
+  }
+}
+
+export async function startSocialContentJob(input: StartSocialContentJobRequest): Promise<StartSocialContentJobResponse> {
+  assertMarketingRuntimeSchemas();
+
+  if (!input?.tenantId || typeof input.tenantId !== 'string' || input.tenantId.trim().length === 0) {
+    throw new Error('missing_required_fields:tenantId');
+  }
+  // The type union was widened to include 'one_off_campaign' in v0.1.11.0 and
+  // 'one_off_post' in v0.1.13.1 (read-both/write-new compat). The accept-list
+  // is enumerated explicitly (rather than `!== weekly`) so a future union
+  // widening must reach this site too.
+  if (input.jobType !== 'weekly_social_content' && input.jobType !== 'one_off_post' && input.jobType !== 'one_off_campaign') {
+    throw new Error(`unsupported_job_type:${input.jobType}`);
+  }
+  // AA-163: plan gate. This is the convergence point for every content-generation
+  // entry (dashboard create forms, the weekly trigger, onboarding, the reel
+  // companion), so gating here covers all customer-initiated AI work. It runs
+  // BEFORE any id is minted or any job doc is written, so a denied create leaves
+  // no partial state behind. Flag-gated OFF by default and fail-open on every
+  // uncertainty — see backend/billing/usage-entitlement.ts.
+  await enforcePlanLimitOrThrow(input.tenantId);
+
+  const brandCampaignInput = ensureSocialContentJobInput(input);
+
+  const jobId = makeSocialContentJobId();
+  const tenantId = input.tenantId.trim();
+  const requestPayload = prepareStartJobPayload(input.jobType, input.payload ?? {});
+  // AA-235 root cause. `jobType` arrives as a SIBLING of `payload`, and
+  // `createSocialContentJobRuntimeDocument` persists the payload verbatim as
+  // `inputs.request` — so unless a caller also duplicated it INSIDE the payload
+  // (only `app/api/marketing/jobs/handler.ts` did), the request the Hermes port
+  // reads carries no jobType at all. `usesPerStageProfilePipeline()` then
+  // routed every scheduled weekly run to the generic brand-campaign branch,
+  // whose prompt is five lines of identifiers, and the agent refused for lack
+  // of inputs. Stamp the request with the job type it was actually started as,
+  // so the persisted document is self-describing at its own source of truth.
+  //
+  // Gated by the SAME flag as the read-side fallback in the Hermes port
+  // (`per-stage-job-type-fallback-env.ts`, default OFF): request.jobType is
+  // consulted BEFORE the flag on the read side, so stamping unconditionally
+  // would flip every new weekly job onto the per-stage pipeline fleet-wide the
+  // moment this lands, which is exactly the decision that must stay an
+  // operator's. Remove the gate (and this comment) once the flag is retired.
+  if (isPerStageJobTypeFallbackEnabled(process.env, tenantId)) {
+    requestPayload.jobType = input.jobType;
+  }
+  if (typeof input.createdBy === 'string' && input.createdBy.trim().length > 0) {
+    requestPayload.userId = input.createdBy.trim();
+  }
+  // Quarantine tenant-scoped validated docs (brand-profile / website-analysis /
+  // business-profile) from a prior campaign so they cannot bleed into the new
+  // campaign's approval payloads when the brand URL has changed.
+  invalidateValidatedProfilesIfSourceChanged(tenantId, brandCampaignInput.brandUrl);
+  const { brandKit, filePath } = await extractAndSaveTenantBrandKit({
+    tenantId,
+    brandUrl: brandCampaignInput.brandUrl,
+  });
+  const doc = createSocialContentJobRuntimeDocument({
+    jobId,
+    tenantId,
+    payload: requestPayload,
+    brandKit: runtimeBrandKitReference(brandKit, filePath),
+    createdBy: input.createdBy ?? null,
+  });
+  // AA-218 (tenant-scopable). Re-targeting the weekly doc rewrites
+  // request.channels, publish_config and the story/video counts, and those feed
+  // the stage PROMPTS — so it is gated by the native-content flag, NOT by
+  // AA-217 eligibility. With native OFF the doc stays Meta-shaped while
+  // synthesize-publish-posts still re-resolves the tenant's real platforms on
+  // its own (it never reads this resolution), which is exactly AA-217-only
+  // behaviour: right platforms, Meta-flavoured copy.
+  const primaryPlatformResolution =
+    input.jobType === 'weekly_social_content' && isPlatformNativeContentEnabled(process.env, tenantId)
+      ? await resolvePrimaryPublishPlatforms(Number(tenantId), pool)
+      : null;
+  if (primaryPlatformResolution) {
+    applyPrimaryPlatformResolutionToWeeklyDoc(doc, primaryPlatformResolution);
+  }
+  // One-off campaigns ride the same social-content Hermes pipeline per design
+  // premise P3 (same 4 stages, same approval gates, same Hermes calls), so they
+  // need the same runtime state block downstream code reads.
+  // One-off campaigns always publish — there is no preview-then-approve cycle, so
+  // publishingRequested must be true from the start. Weekly campaigns derive this
+  // flag from requestedPublishFlag(doc) (payload keys like publishRequested /
+  // livePublishPlatforms), which the one_off payload never sets.
+  if (input.jobType === 'weekly_social_content' || input.jobType === 'one_off_post' || input.jobType === 'one_off_campaign') {
+    ensureSocialContentRuntimeState(doc, {
+      publishingRequested: (input.jobType === 'one_off_post' || input.jobType === 'one_off_campaign') ? true : undefined,
+    });
+  }
+  saveSocialContentJobRuntime(jobId, doc);
+
+  let startError: unknown = null;
+  try {
+    await runResearchStage(doc);
+  } catch (error) {
+    // A cancel between startSocialContentJob setup and the research stage
+    // entrypoint is an intentional exit, not a pipeline failure.
+    if (error instanceof SocialContentJobCancelledError) {
+      // Document was already saved as cancelled by applySoftCancelIfRequested.
+    } else {
+      recordFailure(doc, doc.current_stage, error);
+    }
+    startError = error;
+  }
+
+  if (startError) {
+    return {
+      status: 'accepted',
+      immediateSubmissionStatus: 'failed',
+      jobId,
+      tenantId: doc.tenant_id,
+      jobType: input.jobType,
+      runtimeArtifactPath: runtimeArtifactPath(jobId),
+      approvalRequired: false,
+      currentStage: doc.current_stage,
+      approval: null,
+    };
+  }
+
+  // Best-effort reel companion: for weekly jobs, fire a standalone one-off
+  // reel job so video/Reel production never blocks the weekly image pipeline's
+  // single production-stage slot. Gated by ARIES_WEEKLY_REEL_ENABLED (and
+  // ARIES_VIDEO_PUBLISH_ENABLED). Idempotent — uses a deterministic
+  // createdBy marker derived from jobId so reconciler re-delivery never
+  // starts a second reel job. Errors are swallowed; the weekly job result is
+  // unaffected regardless of whether the reel companion fires.
+  if (input.jobType === 'weekly_social_content') {
+    // Non-blocking: fired without await so the weekly endpoint is not delayed
+    // by a second Hermes submission. Aries runs as a standing Node cluster so
+    // the voided promise completes normally. Errors are swallowed — the reel
+    // companion is best-effort and must never affect the weekly job result.
+    //
+    // AA-217: skip it entirely for an alternate-primary tenant (no Meta, but a
+    // connected x/linkedin/reddit channel). A reel is a Meta surface here — its
+    // synthesized targets are video-shaped fb/ig entries, which alternate mode
+    // drops — so the companion would burn a full Hermes video-generation run,
+    // every week, to produce exactly zero rows. The skip cannot touch a Meta
+    // tenant: it requires the flag ON *and* zero Meta connections, and the
+    // resolver fails open to `meta` (i.e. fires the companion) on any error.
+    void (async () => {
+      if (primaryPlatformResolution && primaryPlatformResolution.mode !== 'meta') {
+        console.info('[marketing-orchestrator] weekly reel companion skipped — no Meta connection', {
+          jobId,
+          tenantId,
+          mode: primaryPlatformResolution.mode,
+        });
+        return;
+      }
+      await maybeFireWeeklyReelJob({
+        tenantId: Number(tenantId),
+        sourceWeeklyJobId: jobId,
+        brandUrl: brandCampaignInput.brandUrl,
+      });
+    })().catch(() => {});
+  }
+
+  // Best-effort AI posting-time derivation (ARIES_AI_POSTING_TIMES_ENABLED):
+  // every content-generation start refreshes the tenant's per-platform
+  // posting-time rows (own analytics once enough posts have metrics, else a
+  // competitor research run), so auto-scheduling consumes fresh timing instead
+  // of the fixed PLATFORM_POSTING_DEFAULTS. Non-blocking and never throws; the
+  // advisor's TTL + in-flight guards collapse rapid repeat clicks (and the
+  // weekly→reel companion's second startSocialContentJob) into one derivation.
+  void deriveAndPersistPostingTimes({
+    tenantId: Number(tenantId),
+    competitorUrl: doc.inputs.competitor_url ?? null,
+    competitorBrand: doc.inputs.competitor_brand ?? null,
+    brandUrl: brandCampaignInput.brandUrl,
+  }).catch(() => {});
+
+  return {
+    status: 'accepted',
+    jobId,
+    tenantId: doc.tenant_id,
+    jobType: input.jobType,
+    runtimeArtifactPath: runtimeArtifactPath(jobId),
+    approvalRequired: !!doc.approvals.current,
+    currentStage: doc.current_stage,
+    approval: doc.approvals.current,
+  };
+}
+
+function inferredWorkflowStepId(checkpoint: MarketingApprovalCheckpoint): WorkflowApprovalStepId {
+  if (checkpoint.workflow_step_id === 'approve_stage_2' || checkpoint.workflow_step_id === 'approve_stage_3' || checkpoint.workflow_step_id === 'approve_stage_4' || checkpoint.workflow_step_id === 'approve_stage_4_publish') {
+    return checkpoint.workflow_step_id;
+  }
+  if (checkpoint.stage === 'strategy') {
+    return 'approve_stage_2';
+  }
+  if (checkpoint.stage === 'production') {
+    return 'approve_stage_3';
+  }
+  if (/paused/i.test(checkpoint.message) || /paused/i.test(checkpoint.title)) {
+    return 'approve_stage_4_publish';
+  }
+  return 'approve_stage_4';
+}
+
+function terminalApprovalResponse(
+  input: { jobId: string; tenantId: string },
+  record: MarketingApprovalRecord,
+): ApproveSocialContentJobResponse {
+  return {
+    status: 'already_resolved',
+    jobId: input.jobId,
+    tenantId: input.tenantId,
+    resumedStage: record.resolution_result?.resumed_stage ?? record.marketing_stage,
+    completed: record.resolution_result?.completed ?? false,
+    approvalId: record.approval_id,
+    reason:
+      record.status === 'denied'
+        ? 'already_denied'
+        : record.status === 'consumed'
+          ? 'already_consumed'
+          : 'already_resolved',
+  };
+}
+
+function cloneApprovalCheckpoint(
+  checkpoint: MarketingApprovalCheckpoint,
+): MarketingApprovalCheckpoint {
+  return {
+    ...checkpoint,
+    publish_config: checkpoint.publish_config
+      ? {
+          ...checkpoint.publish_config,
+          platforms: [...checkpoint.publish_config.platforms],
+          live_publish_platforms: [...checkpoint.publish_config.live_publish_platforms],
+          video_render_platforms: [...checkpoint.publish_config.video_render_platforms],
+        }
+      : null,
+  };
+}
+
+function markApprovalResolutionInProgress(
+  doc: SocialContentJobRuntimeDocument,
+  checkpoint: MarketingApprovalCheckpoint,
+  actedBy: string,
+): void {
+  const record = markStageInProgress(doc, checkpoint.stage);
+  record.artifacts = record.artifacts.map((artifact) =>
+    artifact.category === 'approval'
+      ? {
+          ...artifact,
+          status: 'in_progress',
+        }
+      : artifact,
+  );
+  doc.approvals.current = null;
+  appendHistory(doc, `${checkpoint.stage} approval is being processed by ${actedBy}`, {
+    stage: checkpoint.stage,
+    state: 'running',
+    status: 'running',
+  });
+}
+
+function restoreApprovalCheckpointAfterFailure(
+  doc: SocialContentJobRuntimeDocument,
+  checkpoint: MarketingApprovalCheckpoint,
+): void {
+  if (doc.approvals.current) {
+    return;
+  }
+  doc.approvals.current = cloneApprovalCheckpoint(checkpoint);
+}
+
+async function waitForApprovalRecordResolution(approvalId: string, timeoutMs = 4_000): Promise<MarketingApprovalRecord | null> {
+  const started = Date.now();
+  while ((Date.now() - started) < timeoutMs) {
+    const record = loadMarketingApprovalRecord(approvalId);
+    if (record && (record.status === 'approved' || record.status === 'denied' || record.status === 'consumed')) {
+      return record;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return loadMarketingApprovalRecord(approvalId);
+}
+
+function backfillApprovalRecordFromCheckpoint(doc: SocialContentJobRuntimeDocument, checkpoint: MarketingApprovalCheckpoint): MarketingApprovalRecord | null {
+  const resumeToken = checkpoint.resume_token?.trim() || '';
+  if (!resumeToken) {
+    return null;
+  }
+  const { workflowName, pipelinePath, runtime } = marketingWorkflowRuntimeContext();
+  const descriptor = describeMarketingResumeToken(resumeToken);
+  const record = createMarketingApprovalRecord({
+    approvalId: checkpoint.approval_id ?? undefined,
+    tenantId: doc.tenant_id,
+    marketingJobId: doc.job_id,
+    workflowName: checkpoint.workflow_name?.trim() || workflowName,
+    workflowStepId: inferredWorkflowStepId(checkpoint),
+    socialContentApprovalStep: approvalStepFromWorkflowStepId(checkpoint.workflow_step_id ?? ''),
+    marketingStage: checkpoint.stage,
+    executionResumeToken: resumeToken,
+    executionResumeStateKeys: descriptor.stateKeys,
+    approvalPrompt: checkpoint.message,
+    runtimeContext: {
+      pipelinePath,
+      cwd: runtime.cwd,
+      stateDir: runtime.stateDir,
+      sessionKey: runtime.sessionKey,
+      gatewayUrl: runtime.gatewayUrl,
+    },
+    publishConfig: checkpoint.publish_config ?? null,
+  });
+  saveMarketingApprovalRecord(record);
+  checkpoint.approval_id = record.approval_id;
+  checkpoint.workflow_name = record.workflow_name;
+  checkpoint.workflow_step_id = record.workflow_step_id;
+  saveSocialContentJobRuntime(doc.job_id, doc);
+  return record;
+}
+
+function activeOrBackfilledApprovalRecord(
+  doc: SocialContentJobRuntimeDocument,
+  input: { approvalId?: string | null } = {},
+): MarketingApprovalRecord | null {
+  const existing = activeApprovalRecord(doc, input);
+  if (existing) {
+    return existing;
+  }
+  if (!doc.approvals.current) {
+    return null;
+  }
+  return backfillApprovalRecordFromCheckpoint(doc, doc.approvals.current);
+}
+
+async function resolveMarketingApproval(
+  input: {
+    jobId: string;
+    tenantId: string;
+    actedBy: string;
+    approvedStages?: Array<'research' | 'strategy' | 'production' | 'publish'>;
+    approvalId?: string;
+    approvalStep?: SocialContentApprovalStep;
+    publishConfig?: Partial<MarketingPublishConfig>;
+    resolution: MarketingApprovalResolution;
+    tenantSlug?: string;
+    memoryActorUserId?: string;
+    memoryActorRole?: TenantRole;
+    denialReasonCode?: string | null;
+    denialNote?: string | null;
+  },
+  doc: SocialContentJobRuntimeDocument,
+): Promise<ApproveSocialContentJobResponse> {
+  assertMarketingRuntimeSchemas();
+
+  if (!input.actedBy?.trim()) {
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      reason: 'missing_approved_by',
+    };
+  }
+  if (doc.tenant_id !== input.tenantId) {
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      reason: 'tenant_mismatch',
+    };
+  }
+
+  await ensureRuntimeBrandKit(doc);
+
+  const checkpoint = doc.approvals.current;
+  const targetedRecord =
+    activeOrBackfilledApprovalRecord(doc, { approvalId: input.approvalId }) ||
+    findLatestMarketingApprovalRecord({
+      marketingJobId: input.jobId,
+      tenantId: input.tenantId,
+      approvalId: input.approvalId,
+      statuses: ['approved', 'denied', 'consumed'],
+    });
+
+  if (!checkpoint) {
+    if (targetedRecord && (targetedRecord.status === 'approved' || targetedRecord.status === 'denied' || targetedRecord.status === 'consumed')) {
+      return terminalApprovalResponse(input, targetedRecord);
+    }
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      reason: 'approval_not_available',
+    };
+  }
+  if (input.approvalId?.trim() && checkpoint.approval_id?.trim() && input.approvalId.trim() !== checkpoint.approval_id.trim()) {
+    if (targetedRecord && (targetedRecord.status === 'approved' || targetedRecord.status === 'denied' || targetedRecord.status === 'consumed')) {
+      return terminalApprovalResponse(input, targetedRecord);
+    }
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      reason: 'approval_not_available',
+    };
+  }
+  const checkpointApprovalStep = input.approvalStep ??
+    approvalStepFromWorkflowStepId(checkpoint.workflow_step_id ?? '');
+  const checkpointStageForValidation = checkpointApprovalStep
+    ? marketingStageFromSocialApprovalStep(checkpointApprovalStep)
+    : checkpoint.stage;
+  if (
+    Array.isArray(input.approvedStages)
+    && input.approvedStages.length > 0
+    && !input.approvedStages.includes(checkpointStageForValidation)
+  ) {
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      reason: 'approval_stage_not_selected',
+    };
+  }
+
+  const approvalRecord = activeOrBackfilledApprovalRecord(doc, { approvalId: input.approvalId });
+  if (!approvalRecord) {
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      reason: 'approval_not_available',
+    };
+  }
+
+  const activeApprovalStep = input.approvalStep
+    ?? approvalRecord.social_content_approval_step
+    ?? approvalStepFromWorkflowStepId(checkpoint.workflow_step_id ?? approvalRecord.workflow_step_id);
+  if (
+    input.approvalStep
+    && approvalRecord.social_content_approval_step
+    && input.approvalStep !== approvalRecord.social_content_approval_step
+  ) {
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      reason: 'approval_not_available',
+    };
+  }
+
+  if (approvalRecord.status === 'approved' || approvalRecord.status === 'denied' || approvalRecord.status === 'consumed') {
+    return terminalApprovalResponse(input, approvalRecord);
+  }
+
+  const resumeToken = approvalRecord.execution_resume_token.trim() || checkpoint.resume_token?.trim() || '';
+  const checkpointSnapshot = cloneApprovalCheckpoint(checkpoint);
+  try {
+    return await withMarketingApprovalLock(approvalRecord.approval_id, async () => {
+      const currentRecord = loadMarketingApprovalRecord(approvalRecord.approval_id);
+      if (!currentRecord) {
+        return {
+          status: 'error',
+          jobId: input.jobId,
+          tenantId: input.tenantId,
+          resumedStage: null,
+          completed: false,
+          reason: 'approval_not_available',
+        } satisfies ApproveSocialContentJobResponse;
+      }
+
+      if (currentRecord.status === 'approved' || currentRecord.status === 'denied' || currentRecord.status === 'consumed') {
+        return terminalApprovalResponse(input, currentRecord);
+      }
+
+      currentRecord.attempt_count += 1;
+      currentRecord.last_error = null;
+      saveMarketingApprovalRecord(currentRecord);
+
+      if (input.resolution === 'approve') {
+        markApprovalResolutionInProgress(doc, checkpoint, input.actedBy.trim());
+        saveSocialContentJobRuntime(doc.job_id, doc);
+      }
+
+      approvalLifecycleLog('approval-resume-requested', {
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        stage: checkpoint.stage,
+        workflowStepId: currentRecord.workflow_step_id,
+        approvalId: currentRecord.approval_id,
+        resolution: input.resolution,
+        attemptCount: currentRecord.attempt_count,
+        correlationId: currentRecord.correlation_id,
+        traceId: currentRecord.trace_id,
+        tokenFingerprint: currentRecord.execution_resume_token_fingerprint,
+        tokenStateKeys: currentRecord.execution_resume_state_keys,
+        // Weekly social-content is Hermes-only regardless of env, so the log
+        // must mirror the actual port. Brand-campaign uses the provider env.
+        provider: requestedJobTypeFromDoc(doc) === 'weekly_social_content'
+          ? 'hermes'
+          : resolveMarketingProviderName(process.env),
+      });
+
+      const applyResolution = async (
+        activeResumeToken: string,
+      ): Promise<{ resumedStage: MarketingStage | null; completed: boolean }> => {
+        if (input.resolution === 'deny') {
+          const execution = await resumeMarketingPipeline(activeResumeToken, false, doc, {
+            tenantId: doc.tenant_id,
+            jobId: doc.job_id,
+            approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+            stage: checkpoint.stage,
+            workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+            approvalStep: activeApprovalStep,
+            workflowKey: requestedJobTypeFromDoc(doc) === 'weekly_social_content'
+              ? SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+              : undefined,
+          });
+          if (execution.kind === 'submitted') {
+            recordApprovalDenied(doc, {
+              stage: checkpoint.stage,
+              deniedBy: input.actedBy.trim(),
+              message: checkpoint.message,
+              publishConfig: checkpoint.stage === 'publish' ? input.publishConfig : undefined,
+              approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+              workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+            });
+            clearApprovalCheckpoint(doc, `${checkpoint.stage} approval denied by ${input.actedBy.trim()}`);
+            doc.state = 'failed';
+            doc.status = 'failed';
+            saveSocialContentJobRuntime(doc.job_id, doc);
+            return {
+              resumedStage: checkpoint.stage,
+              completed: false,
+            };
+          }
+          const envelope = completedMarketingEnvelope(execution);
+          if (envelope.status !== 'cancelled') {
+            throw new Error('workflow_deny_failed:workflow_did_not_cancel');
+          }
+          recordApprovalDenied(doc, {
+            stage: checkpoint.stage,
+            deniedBy: input.actedBy.trim(),
+            message: checkpoint.message,
+            publishConfig: checkpoint.stage === 'publish' ? input.publishConfig : undefined,
+            approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+            workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+          });
+          clearApprovalCheckpoint(doc, `${checkpoint.stage} approval denied by ${input.actedBy.trim()}`);
+          doc.state = 'failed';
+          doc.status = 'failed';
+          saveSocialContentJobRuntime(doc.job_id, doc);
+          return {
+            resumedStage: checkpoint.stage,
+            completed: false,
+          };
+        }
+
+        let resumedStage: MarketingStage | null = null;
+        const resumeContext = {
+          approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+          workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+          approvalStep: activeApprovalStep,
+          workflowKey: requestedJobTypeFromDoc(doc) === 'weekly_social_content'
+            ? SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+            : undefined,
+        };
+        if (checkpoint.stage === 'strategy') {
+          await finalizeStrategyAndRunProductionReview(doc, activeResumeToken, resumeContext);
+          resumedStage = 'production';
+        } else if (checkpoint.stage === 'production') {
+          const shouldRouteThroughSocialCopyFinalize = (
+            requestedJobTypeFromDoc(doc) === 'weekly_social_content'
+            && activeApprovalStep === 'approve_image_creatives'
+          );
+          if (shouldRouteThroughSocialCopyFinalize) {
+            resumedStage = await continueAfterCreativeReviewApproval(doc, activeResumeToken, resumeContext);
+          } else {
+            await finalizeProductionAndRunPublishReview(doc, activeResumeToken, resumeContext);
+            resumedStage = 'publish';
+          }
+        } else {
+          await advancePublishStage(doc, activeResumeToken, resumeContext);
+          resumedStage = 'publish';
+        }
+
+        const completed = doc.state === 'completed';
+        recordApproval(doc, {
+          stage: checkpoint.stage,
+          approvedBy: input.actedBy.trim(),
+          message: checkpoint.message,
+          publishConfig: checkpoint.stage === 'publish' ? input.publishConfig : undefined,
+          approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+          workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+        });
+        appendHistory(doc, `${checkpoint.stage} approval received from ${input.actedBy.trim()}`, {
+          stage: checkpoint.stage,
+          state: completed ? 'completed' : doc.state,
+          status: completed ? 'completed' : doc.status,
+        });
+        saveSocialContentJobRuntime(doc.job_id, doc);
+        return { resumedStage, completed };
+      };
+
+      const { resumedStage, completed } = await applyResolution(resumeToken);
+
+      if (activeApprovalStep && requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
+        markSocialContentApprovalResolutionSubmitted(doc, {
+          approvalStep: activeApprovalStep,
+          approved: input.resolution === 'approve',
+        });
+        saveSocialContentJobRuntime(doc.job_id, doc);
+      }
+
+      currentRecord.status = input.resolution === 'approve' ? 'approved' : 'denied';
+      currentRecord.resolution = input.resolution;
+      currentRecord.resolved_at = nowIso();
+      currentRecord.resolution_result = {
+        resumed_stage: resumedStage,
+        completed,
+        outcome: input.resolution === 'approve' ? 'workflow_resumed' : 'workflow_cancelled',
+        ...(input.resolution === 'deny'
+          ? {
+              denial_reason_code: input.denialReasonCode?.trim() ? input.denialReasonCode.trim() : null,
+              denial_note: input.denialNote?.trim() ? input.denialNote.trim() : null,
+            }
+          : {}),
+      };
+      currentRecord.last_error = null;
+      saveMarketingApprovalRecord(currentRecord);
+
+      approvalLifecycleLog('approval-resume-succeeded', {
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        stage: checkpoint.stage,
+        workflowStepId: currentRecord.workflow_step_id,
+        approvalId: currentRecord.approval_id,
+        resolution: input.resolution,
+        resumedStage,
+        completed,
+        attemptCount: currentRecord.attempt_count,
+        tokenFingerprint: currentRecord.execution_resume_token_fingerprint,
+      });
+
+      const honchoStage = marketingStageForHonchoMirror(checkpoint.stage);
+      const slug = input.tenantSlug?.trim();
+      const actor = input.memoryActorUserId?.trim();
+      if (!actor) {
+        console.warn('[orchestrator] Honcho mirror skipped: memoryActorUserId missing');
+      }
+      if (honchoStage && slug && actor && currentRecord.resolved_at) {
+        scheduleMarketingApprovalHonchoWrites({
+          tenantCtx: {
+            tenantId: input.tenantId,
+            tenantSlug: slug,
+            userId: actor,
+            role: input.memoryActorRole ?? 'tenant_admin',
+          },
+          memoryActorUserId: actor,
+          jobId: input.jobId,
+          stage: honchoStage,
+          resolution: input.resolution === 'approve' ? 'approve' : 'deny',
+          denialReasonCode: input.resolution === 'deny' ? input.denialReasonCode ?? null : undefined,
+          eventDateYmd: currentRecord.resolved_at.slice(0, 10).replace(/-/g, ''),
+        });
+      }
+
+      return {
+        status: input.resolution === 'approve' ? 'resumed' : 'denied',
+        jobId: input.jobId,
+        tenantId: input.tenantId,
+        resumedStage,
+        completed,
+        approvalId: currentRecord.approval_id,
+      } satisfies ApproveSocialContentJobResponse;
+    });
+  } catch (error) {
+    if (error instanceof MarketingApprovalLockError) {
+      const settled = await waitForApprovalRecordResolution(error.approvalId);
+      if (settled && (settled.status === 'approved' || settled.status === 'denied' || settled.status === 'consumed')) {
+        return terminalApprovalResponse(input, settled);
+      }
+      return {
+        status: 'error',
+        jobId: input.jobId,
+        tenantId: input.tenantId,
+        resumedStage: null,
+        completed: false,
+        approvalId: error.approvalId,
+        reason: 'approval_resolution_in_progress',
+      };
+    }
+
+    if (input.resolution === 'approve') {
+      restoreApprovalCheckpointAfterFailure(doc, checkpointSnapshot);
+    }
+
+    const record = loadMarketingApprovalRecord(approvalRecord.approval_id);
+    if (record) {
+      record.status = 'failed';
+      record.last_error = {
+        code: 'approval_resume_failed',
+        message: error instanceof Error ? error.message : String(error),
+        at: nowIso(),
+      };
+      saveMarketingApprovalRecord(record);
+      approvalLifecycleLog('approval-resume-failed', {
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        stage: checkpoint.stage,
+        workflowStepId: record.workflow_step_id,
+        approvalId: record.approval_id,
+        resolution: input.resolution,
+        attemptCount: record.attempt_count,
+        tokenFingerprint: record.execution_resume_token_fingerprint,
+        reason: record.last_error.message,
+      });
+    }
+    // Persist the job-level failed state so the runtime doc reflects the failure.
+    // Previously done by handleFailure (which also re-threw); since be82ed8 the
+    // catch returns a structured error instead, so we call recordFailure explicitly.
+    if (checkpoint) {
+      recordFailure(doc, checkpoint.stage, error);
+    }
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      approvalId: record?.approval_id ?? approvalRecord.approval_id,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function approveSocialContentJob(
+  input: ApproveSocialContentJobRequest,
+  doc: SocialContentJobRuntimeDocument
+): Promise<ApproveSocialContentJobResponse> {
+  return resolveMarketingApproval({
+    jobId: input.jobId,
+    tenantId: input.tenantId,
+    actedBy: input.approvedBy,
+    approvedStages: input.approvedStages,
+    approvalId: input.approvalId,
+    approvalStep: input.approvalStep,
+    publishConfig: input.publishConfig,
+    resolution: 'approve',
+    tenantSlug: input.tenantSlug,
+    memoryActorUserId: input.memoryActorUserId,
+    memoryActorRole: input.memoryActorRole,
+  }, doc);
+}
+
+export async function denySocialContentJob(
+  input: DenySocialContentJobRequest,
+  doc: SocialContentJobRuntimeDocument,
+): Promise<ApproveSocialContentJobResponse> {
+  return resolveMarketingApproval({
+    jobId: input.jobId,
+    tenantId: input.tenantId,
+    actedBy: input.deniedBy,
+    approvalId: input.approvalId,
+    publishConfig: input.publishConfig,
+    resolution: 'deny',
+    tenantSlug: input.tenantSlug,
+    memoryActorUserId: input.memoryActorUserId,
+    memoryActorRole: input.memoryActorRole,
+    denialReasonCode: input.denialReasonCode,
+    denialNote: input.denialNote ?? input.note,
+  }, doc);
+}

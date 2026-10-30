@@ -1,0 +1,331 @@
+'use client';
+
+import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarClock, Check, LoaderCircle, X } from 'lucide-react';
+import { FacebookIcon, InstagramIcon, LinkedinIcon, YoutubeIcon } from './brand-icons';
+import { XIcon, RedditIcon } from '@/frontend/components/Icons';
+import type { AllowedTargetPlatform } from '@/backend/social-content/scheduled-posts';
+
+import {
+  DEFAULT_TENANT_TIMEZONE,
+  utcToWallTime,
+  wallTimeToUtc,
+} from '@/lib/format-timestamp';
+
+type PlatformIcon = ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>;
+
+const PLATFORM_OPTIONS: Array<{ id: AllowedTargetPlatform; label: string; Icon: PlatformIcon }> = [
+  { id: 'instagram', label: 'Instagram', Icon: InstagramIcon as PlatformIcon },
+  { id: 'facebook', label: 'Facebook', Icon: FacebookIcon as PlatformIcon },
+  { id: 'x', label: 'X', Icon: XIcon as PlatformIcon },
+  { id: 'reddit', label: 'Reddit', Icon: RedditIcon as PlatformIcon },
+  { id: 'linkedin', label: 'LinkedIn', Icon: LinkedinIcon as PlatformIcon },
+  { id: 'youtube', label: 'YouTube', Icon: YoutubeIcon as PlatformIcon },
+];
+
+export interface ScheduleSavedDetail {
+  jobId: string;
+  postId: string;
+  scheduledAt: string;
+  platforms: AllowedTargetPlatform[];
+  updatedAt: string;
+}
+
+export interface RescheduleDrawerProps {
+  jobId: string;
+  postId: string;
+  defaultScheduledAt?: string | null;
+  defaultPlatforms?: AllowedTargetPlatform[];
+  /**
+   * Which platforms to show as selectable options. Defaults to
+   * `['facebook', 'instagram']` (byte-identical to previous behaviour when all
+   * rollout flags are OFF). Pass the server-computed `allowedPublishPlatforms`
+   * to surface X / Reddit / LinkedIn when their flags are ON.
+   */
+  allowedPlatforms?: AllowedTargetPlatform[];
+  /** Tenant business timezone — the datetime-local wall time is read in it. */
+  timeZone?: string;
+  timezoneLabel?: string;
+  onClose: () => void;
+  onSaved?: (detail: ScheduleSavedDetail) => void;
+  endpointBase?: string;
+}
+
+// Renders a UTC instant as a `datetime-local` wall-clock value in the tenant
+// business zone. T15: previously this used the BROWSER zone (date-fns format
+// on a plain Date), which mis-scheduled posts for traveling/remote operators.
+function toLocalInputValue(iso: string | null | undefined, timeZone: string): string {
+  if (!iso) {
+    // Default to the next top-of-hour, expressed in the tenant zone.
+    const now = new Date();
+    now.setMinutes(0, 0, 0);
+    now.setHours(now.getHours() + 1);
+    return utcToWallTime(now, timeZone) ?? '';
+  }
+  return utcToWallTime(iso, timeZone) ?? '';
+}
+
+export default function RescheduleDrawer(props: RescheduleDrawerProps) {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const initialPlatforms = useMemo<Set<AllowedTargetPlatform>>(
+    () => new Set(props.defaultPlatforms?.length ? props.defaultPlatforms : ['instagram', 'facebook']),
+    [props.defaultPlatforms],
+  );
+
+  // Platforms visible in the picker. Defaults to facebook+instagram so the
+  // rendered output is byte-identical to the old behaviour when all flags are OFF.
+  const visibleOptions = useMemo(() => {
+    const allowed = new Set<AllowedTargetPlatform>(
+      props.allowedPlatforms ?? ['facebook', 'instagram'],
+    );
+    return PLATFORM_OPTIONS.filter((o) => allowed.has(o.id));
+  }, [props.allowedPlatforms]);
+
+  const timeZone = props.timeZone ?? DEFAULT_TENANT_TIMEZONE;
+  const [scheduledAtLocal, setScheduledAtLocal] = useState(() =>
+    toLocalInputValue(props.defaultScheduledAt, timeZone),
+  );
+  const [platforms, setPlatforms] = useState<Set<AllowedTargetPlatform>>(initialPlatforms);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !submitting) {
+        props.onClose();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [props, submitting]);
+
+  function togglePlatform(id: AllowedTargetPlatform) {
+    setErrorMessage(null);
+    setPlatforms((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting) return;
+
+    if (!scheduledAtLocal) {
+      setErrorMessage('Pick a date and time before saving.');
+      return;
+    }
+    // T15: the datetime-local value is a wall-clock time with no zone. Resolve
+    // it in the tenant business zone (DST-safe) — NOT the browser zone.
+    const scheduledInstant = wallTimeToUtc(scheduledAtLocal, timeZone);
+    if (!scheduledInstant) {
+      setErrorMessage('That date and time could not be read. Try again.');
+      return;
+    }
+    const orderedPlatforms: AllowedTargetPlatform[] = PLATFORM_OPTIONS
+      .map((option) => option.id)
+      .filter((id) => platforms.has(id));
+    if (orderedPlatforms.length === 0) {
+      setErrorMessage('Pick at least one platform target.');
+      return;
+    }
+
+    setSubmitting(true);
+    setErrorMessage(null);
+    setConfirmation(null);
+
+    try {
+      const base = props.endpointBase ?? '/api/social-content/jobs';
+      const url = `${base}/${encodeURIComponent(props.jobId)}/posts/${encodeURIComponent(props.postId)}/schedule`;
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          scheduled_at: scheduledInstant.toISOString(),
+          platforms: orderedPlatforms,
+        }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setErrorMessage(payload?.error ?? 'We could not save the new schedule. Try again in a moment.');
+        return;
+      }
+      const payload = (await response.json()) as ScheduleSavedDetail;
+      setConfirmation('Saved.');
+      props.onSaved?.(payload);
+    } catch {
+      setErrorMessage('Network error while saving the new schedule.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const tzLabel = props.timezoneLabel ?? timeZone;
+  const orderedPlatformChips: AllowedTargetPlatform[] = PLATFORM_OPTIONS
+    .map((option) => option.id)
+    .filter((id) => platforms.has(id));
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="reschedule-drawer-title"
+      data-testid="reschedule-drawer"
+      className="fixed inset-0 z-40 flex items-end justify-center bg-black/55 px-4 pb-6 pt-20 backdrop-blur-sm sm:items-center sm:pb-12"
+    >
+      <button
+        type="button"
+        aria-label="Close reschedule drawer"
+        onClick={props.onClose}
+        className="absolute inset-0 cursor-default"
+      />
+      <form
+        onSubmit={handleSubmit}
+        className="relative z-10 w-full max-w-lg overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#101418]/95 shadow-[0_32px_120px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-5">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80">
+              <CalendarClock className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Reschedule post</p>
+              <h2 id="reschedule-drawer-title" className="mt-1 text-base font-semibold text-white">
+                When and where should this go live?
+              </h2>
+            </div>
+          </div>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={props.onClose}
+            disabled={submitting}
+            className="rounded-full border border-white/10 p-2 text-white/65 transition hover:border-white/20 hover:text-white disabled:opacity-50"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="space-y-5 px-6 py-5">
+          <label className="block space-y-2 text-sm" htmlFor="reschedule-datetime">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Publish date & time</span>
+            <input
+              id="reschedule-datetime"
+              data-testid="reschedule-datetime-input"
+              type="datetime-local"
+              value={scheduledAtLocal}
+              onChange={(event) => {
+                setErrorMessage(null);
+                setScheduledAtLocal(event.target.value);
+              }}
+              required
+              className="w-full rounded-[1rem] border border-white/12 bg-black/30 px-4 py-3 font-mono text-sm text-white placeholder:text-white/30 focus:border-white/35 focus:outline-none"
+            />
+            <span className="text-xs text-white/70">Times use the {tzLabel} business profile timezone.</span>
+          </label>
+
+          <fieldset className="space-y-3">
+            <legend className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Publish to</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {visibleOptions.map((option) => {
+                const checked = platforms.has(option.id);
+                const Icon = option.Icon;
+                return (
+                  <label
+                    key={option.id}
+                    htmlFor={`reschedule-platform-${option.id}`}
+                    className={`flex cursor-pointer items-center gap-3 rounded-[1rem] border px-4 py-3 text-sm transition ${
+                      checked
+                        ? 'border-white/35 bg-white/[0.08] text-white'
+                        : 'border-white/10 bg-black/20 text-white/65 hover:border-white/20 hover:text-white'
+                    }`}
+                  >
+                    <input
+                      id={`reschedule-platform-${option.id}`}
+                      data-testid={`reschedule-platform-${option.id}`}
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => togglePlatform(option.id)}
+                      className="sr-only"
+                    />
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                        checked ? 'border-white bg-white text-[#11161c]' : 'border-white/25 bg-transparent text-transparent'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <Check className="h-3 w-3" />
+                    </span>
+                    <Icon className="h-4 w-4 opacity-80" aria-hidden="true" />
+                    <span className="font-medium">{option.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+            {orderedPlatformChips.length === 0 ? (
+              <p className="text-xs text-amber-300/80" data-testid="reschedule-platforms-empty">
+                Pick at least one platform.
+              </p>
+            ) : (
+              <p className="text-xs text-white/70" data-testid="reschedule-platforms-summary">
+                {orderedPlatformChips.length === 1 ? 'Posting to' : 'Cross-posting to'}{' '}
+                <span className="font-medium text-white/70">{orderedPlatformChips.join(' + ')}</span>
+              </p>
+            )}
+          </fieldset>
+
+          {errorMessage ? (
+            <p
+              role="alert"
+              data-testid="reschedule-error"
+              className="rounded-[0.85rem] border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100"
+            >
+              {errorMessage}
+            </p>
+          ) : null}
+          {confirmation ? (
+            <p
+              role="status"
+              data-testid="reschedule-confirmation"
+              className="rounded-[0.85rem] border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100"
+            >
+              {confirmation}
+            </p>
+          ) : null}
+        </div>
+
+        <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-white/8 bg-black/15 px-6 py-4">
+          <button
+            type="button"
+            onClick={props.onClose}
+            disabled={submitting}
+            className="rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/75 transition hover:border-white/20 hover:text-white disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            data-testid="reschedule-submit"
+            disabled={submitting || orderedPlatformChips.length === 0}
+            style={{ color: '#11161c' }}
+            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold disabled:opacity-60"
+          >
+            {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+            {submitting ? 'Saving' : 'Save schedule'}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}

@@ -1,0 +1,567 @@
+import { ExecutionError } from '../errors';
+import {
+  createExecutionRunRecord,
+  markExecutionRunFailed,
+  markExecutionRunSubmitted,
+} from '../run-store';
+import type { WorkflowEnvelope, WorkflowExecutionResult } from '../types';
+import { ARIES_WORKFLOWS } from '../workflow-catalog';
+import { withTaskExecutionLog } from '../../telemetry/task-execution-log';
+
+type HermesExecutionEnv = Partial<Record<string, string | undefined>>;
+type HermesFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
+type HermesSleep = (ms: number) => Promise<void>;
+
+// Derived from the canonical workflow catalog so any new key added to
+// ARIES_WORKFLOWS is automatically reachable through Hermes. Before this was
+// hardcoded to ['demo_start'], which silently 501'd every other route after
+// PR #258 made Hermes the default provider.
+const HERMES_SUPPORTED_RUN_WORKFLOWS = new Set<string>(Object.keys(ARIES_WORKFLOWS));
+
+const DEFAULT_RUN_TIMEOUT_MS = 60_000;
+const DEFAULT_POLL_INTERVAL_MS = 1_000;
+const MIN_POLL_INTERVAL_MS = 50;
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'stopped']);
+
+type HermesRequestBase = {
+  provider: 'hermes';
+  sessionKey?: string;
+  cwd?: string;
+  timeoutMs?: number;
+  maxStdoutBytes?: number;
+};
+
+export type HermesRunRequestEnvelope = HermesRequestBase & {
+  action: 'run';
+  workflowId: string;
+  argsJson: string;
+};
+
+export type HermesResumeRequestEnvelope = HermesRequestBase & {
+  action: 'resume';
+  workflowId: string;
+  argsJson: string;
+  approvalResumeToken: string;
+  approve: boolean;
+};
+
+export type HermesCancelRequestEnvelope = HermesRequestBase & {
+  action: 'cancel';
+  cancelCorrelationId: string;
+};
+
+export type HermesRequestEnvelope =
+  | HermesRunRequestEnvelope
+  | HermesResumeRequestEnvelope
+  | HermesCancelRequestEnvelope;
+
+export type HermesRequestEnvelopeInput =
+  | {
+      action: 'run';
+      workflowId: string;
+      args: Record<string, unknown>;
+      sessionKey?: string;
+      cwd?: string;
+      timeoutMs?: number;
+      maxStdoutBytes?: number;
+    }
+  | {
+      action: 'resume';
+      workflowId: string;
+      args: Record<string, unknown>;
+      approvalResumeToken: string;
+      approve: boolean;
+      sessionKey?: string;
+      cwd?: string;
+      timeoutMs?: number;
+      maxStdoutBytes?: number;
+    }
+  | {
+      action: 'cancel';
+      cancelCorrelationId: string;
+      sessionKey?: string;
+      cwd?: string;
+      timeoutMs?: number;
+      maxStdoutBytes?: number;
+    };
+
+function readEnvValue(env: HermesExecutionEnv, key: string): string {
+  const value = env[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readEnvInt(env: HermesExecutionEnv, key: string, fallback: number): number {
+  const raw = readEnvValue(env, key);
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function addOptionalRequestFields<T extends HermesRequestEnvelope>(
+  envelope: T,
+  input: HermesRequestEnvelopeInput,
+): T {
+  if (input.sessionKey) envelope.sessionKey = input.sessionKey;
+  if (input.cwd) envelope.cwd = input.cwd;
+  if (input.timeoutMs !== undefined) envelope.timeoutMs = input.timeoutMs;
+  if (input.maxStdoutBytes !== undefined) envelope.maxStdoutBytes = input.maxStdoutBytes;
+  return envelope;
+}
+
+/**
+ * Internal request envelope shape. Retained as a stable serialization of the
+ * Aries-side execution intent. `submitRun()` converts this to a human-readable
+ * prompt via `promptForWorkflow()` and per-workflow instructions via
+ * `instructionsForWorkflow()` before sending to the Hermes /v1/runs endpoint.
+ */
+export function buildHermesRequestEnvelope(
+  input: HermesRequestEnvelopeInput,
+): HermesRequestEnvelope {
+  switch (input.action) {
+    case 'run':
+      return addOptionalRequestFields(
+        {
+          provider: 'hermes',
+          action: 'run',
+          workflowId: input.workflowId,
+          argsJson: JSON.stringify(input.args),
+        },
+        input,
+      );
+    case 'resume':
+      return addOptionalRequestFields(
+        {
+          provider: 'hermes',
+          action: 'resume',
+          workflowId: input.workflowId,
+          argsJson: JSON.stringify(input.args),
+          approvalResumeToken: input.approvalResumeToken,
+          approve: input.approve,
+        },
+        input,
+      );
+    case 'cancel':
+      return addOptionalRequestFields(
+        {
+          provider: 'hermes',
+          action: 'cancel',
+          cancelCorrelationId: input.cancelCorrelationId,
+        },
+        input,
+      );
+    default: {
+      const _exhaustive: never = input;
+      return _exhaustive;
+    }
+  }
+}
+
+function missingHermesConfigError(keys: 'HERMES_GATEWAY_URL' | 'HERMES_API_SERVER_KEY' | 'HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY'): ExecutionError {
+  return new ExecutionError({
+    provider: 'hermes',
+    code: 'not_configured',
+    status: 503,
+    message: `${keys} required for Hermes execution. Set HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY (the value of API_SERVER_KEY from the Hermes .env).`,
+  });
+}
+
+
+function notImplementedResult(route: string): WorkflowExecutionResult {
+  return {
+    kind: 'not_implemented',
+    payload: {
+      status: 'not_implemented',
+      code: 'workflow_missing_for_route',
+      route,
+      message:
+        'Hermes execution adapter rejected workflow: key is not in ARIES_WORKFLOWS catalog.',
+      provider: 'hermes',
+    },
+  };
+}
+
+function primaryOutputRecord(envelope: WorkflowEnvelope): Record<string, unknown> | null {
+  const output = envelope.output;
+  if (!Array.isArray(output) || output.length === 0) {
+    return null;
+  }
+
+  const first = output[0];
+  if (!first || typeof first !== 'object' || Array.isArray(first)) {
+    return null;
+  }
+
+  return first as Record<string, unknown>;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function errorCodeForStatus(status: number): ExecutionError['code'] {
+  if (status === 401 || status === 403) {
+    return 'unauthorized';
+  }
+  if (status === 404) {
+    return 'tool_unavailable';
+  }
+  if (status >= 500) {
+    return 'server_error';
+  }
+  return 'request_invalid';
+}
+
+function gatewayErrorResult(error: ExecutionError): WorkflowExecutionResult {
+  return {
+    kind: 'gateway_error',
+    error,
+  };
+}
+
+function instructionsForWorkflow(workflowId: string): string {
+  if (workflowId === 'demo_start') {
+    return [
+      'You are the Aries demo provisioning agent.',
+      'Reply with a single strict JSON object only — no prose, no markdown fences.',
+      'Required schema: {"status":"ok","output":[{...}],"message":"..."}.',
+      'The first output entry should describe the provisioned demo (e.g. provisioned: true, lead_id, next_step).',
+    ].join(' ');
+  }
+  return [
+    `You are the Aries ${workflowId} workflow agent.`,
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    'Required schema: {"status":"ok","output":[{...}],"message":"..."}.',
+    'The first output entry should describe the result of this workflow run.',
+  ].join(' ');
+}
+
+function promptForWorkflow(envelope: HermesRunRequestEnvelope, ariesRunId: string): string {
+  return [
+    `Workflow: ${envelope.workflowId}`,
+    `Aries run ID: ${ariesRunId}`,
+    `Args (JSON): ${envelope.argsJson}`,
+    'Produce the JSON envelope for this workflow now.',
+  ].join('\n');
+}
+
+function tryParseJson(text: string): unknown {
+  if (!text) return null;
+  // The agent may wrap JSON in fences despite instructions; try a fenced extract first.
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : text;
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return null;
+  }
+}
+
+export class HermesExecutionAdapter {
+  readonly name = 'hermes' as const;
+
+  constructor(
+    private readonly env: HermesExecutionEnv = process.env,
+    private readonly fetchImpl: HermesFetch = globalThis.fetch,
+    private readonly sleep: HermesSleep = (ms: number) =>
+      new Promise((resolve) => setTimeout(resolve, ms)),
+  ) {}
+
+  async runWorkflow(
+    key: string,
+    input: Record<string, unknown>,
+  ): Promise<WorkflowExecutionResult> {
+    const configError = this.configurationError();
+    if (configError) {
+      return gatewayErrorResult(configError);
+    }
+    if (!HERMES_SUPPORTED_RUN_WORKFLOWS.has(key)) {
+      return notImplementedResult(key);
+    }
+
+    const envelope = buildHermesRequestEnvelope({
+      action: 'run',
+      workflowId: key,
+      args: input,
+      sessionKey: this.sessionKey(),
+    }) as HermesRunRequestEnvelope;
+
+    const tenantId = input.tenantId ?? input.tenant_id;
+    const executionTenantId = typeof tenantId === 'string' || typeof tenantId === 'number'
+      ? String(tenantId)
+      : undefined;
+    return withTaskExecutionLog(
+      {
+        engine: 'AI_LLM',
+        taskKey: `execution.${key}`,
+        tenantId: typeof tenantId === 'string' || typeof tenantId === 'number' ? tenantId : null,
+        detailsFromResult(result) {
+          const execution = result as WorkflowExecutionResult;
+          return execution.kind === 'ok'
+            ? { externalRunId: typeof execution.envelope.run_id === 'string' ? execution.envelope.run_id : null }
+            : {};
+        },
+        outcomeFromResult(result) {
+          const execution = result as WorkflowExecutionResult;
+          if (execution.kind !== 'gateway_error') return { status: 'succeeded' };
+          const detail = execution.error.cause ?? execution.error;
+          const detailCode = (detail as { code?: unknown } | null)?.code;
+          return {
+            status: 'failed',
+            errorCode: typeof detailCode === 'string' ? detailCode : execution.error.code,
+            errorClass: detail instanceof Error ? detail.name : 'ExecutionError',
+            errorMessage: detail instanceof Error ? detail.message : execution.error.message,
+          };
+        },
+      },
+      () => this.invokeRun(envelope, executionTenantId),
+      { env: this.env },
+    );
+  }
+
+  private configurationError(): ExecutionError | null {
+    const missingGatewayUrl = !readEnvValue(this.env, 'HERMES_GATEWAY_URL');
+    const missingApiServerKey = !readEnvValue(this.env, 'HERMES_API_SERVER_KEY');
+
+    if (missingGatewayUrl && missingApiServerKey) {
+      return missingHermesConfigError('HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY');
+    }
+    if (missingGatewayUrl) {
+      return missingHermesConfigError('HERMES_GATEWAY_URL');
+    }
+    if (missingApiServerKey) {
+      return missingHermesConfigError('HERMES_API_SERVER_KEY');
+    }
+    return null;
+  }
+
+  private sessionKey(): string {
+    return readEnvValue(this.env, 'HERMES_SESSION_KEY') || 'main';
+  }
+
+  private gatewayUrl(): string {
+    return readEnvValue(this.env, 'HERMES_GATEWAY_URL').replace(/\/+$/, '');
+  }
+
+  private authHeader(): string {
+    return `Bearer ${readEnvValue(this.env, 'HERMES_API_SERVER_KEY')}`;
+  }
+
+  private async invokeRun(
+    envelope: HermesRunRequestEnvelope,
+    tenantId: string | undefined,
+  ): Promise<WorkflowExecutionResult> {
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'route',
+      workflowKey: envelope.workflowId,
+      action: 'run',
+      tenantId,
+    });
+    const submission = await this.submitRun(envelope, run.aries_run_id);
+    if (submission.kind !== 'submitted') {
+      return submission.result;
+    }
+    markExecutionRunSubmitted(run.aries_run_id, { externalRunId: submission.runId });
+    return this.pollRunUntilTerminal(submission.runId, run.aries_run_id);
+  }
+
+  private async submitRun(
+    envelope: HermesRunRequestEnvelope,
+    ariesRunId: string,
+  ): Promise<{ kind: 'submitted'; runId: string } | { kind: 'error'; result: WorkflowExecutionResult }> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.gatewayUrl()}/v1/runs`, {
+        method: 'POST',
+        headers: {
+          authorization: this.authHeader(),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          input: promptForWorkflow(envelope, ariesRunId),
+          instructions: instructionsForWorkflow(envelope.workflowId),
+          session_id: this.sessionKey(),
+        }),
+      });
+    } catch (error) {
+      return {
+        kind: 'error',
+        result: gatewayErrorResult(new ExecutionError({
+          provider: 'hermes',
+          code: 'unreachable',
+          status: 503,
+          message: 'Hermes gateway is unreachable.',
+          cause: error,
+        })),
+      };
+    }
+
+    if (!response.ok) {
+      return {
+        kind: 'error',
+        result: gatewayErrorResult(new ExecutionError({
+          provider: 'hermes',
+          code: errorCodeForStatus(response.status),
+          status: response.status,
+          message: `Hermes gateway returned HTTP ${response.status} on /v1/runs.`,
+        })),
+      };
+    }
+
+    const parsed = await this.parseJsonBody(response);
+    if (parsed.kind === 'error') {
+      return { kind: 'error', result: parsed.result };
+    }
+    const record = recordValue(parsed.value);
+    const runId = record && typeof record.run_id === 'string' ? record.run_id : '';
+    if (!runId) {
+      return {
+        kind: 'error',
+        result: gatewayErrorResult(new ExecutionError({
+          provider: 'hermes',
+          code: 'response_invalid',
+          status: response.status,
+          message: 'Hermes /v1/runs response is missing run_id.',
+        })),
+      };
+    }
+    return { kind: 'submitted', runId };
+  }
+
+  private async pollRunUntilTerminal(runId: string, ariesRunId: string): Promise<WorkflowExecutionResult> {
+    const timeoutMs = readEnvInt(this.env, 'HERMES_RUN_TIMEOUT_MS', DEFAULT_RUN_TIMEOUT_MS);
+    const intervalMs = Math.max(
+      MIN_POLL_INTERVAL_MS,
+      readEnvInt(this.env, 'HERMES_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS),
+    );
+    const deadline = Date.now() + timeoutMs;
+
+    const failRun = (error: ExecutionError): WorkflowExecutionResult => {
+      markExecutionRunFailed(ariesRunId, {
+        code: error.code,
+        message: error.message,
+        retryable: error.code === 'unreachable',
+      });
+      return gatewayErrorResult(error);
+    };
+
+    while (Date.now() <= deadline) {
+      let response: Response;
+      try {
+        response = await this.fetchImpl(`${this.gatewayUrl()}/v1/runs/${encodeURIComponent(runId)}`, {
+          method: 'GET',
+          headers: { authorization: this.authHeader() },
+        });
+      } catch (error) {
+        return failRun(new ExecutionError({
+          provider: 'hermes',
+          code: 'unreachable',
+          status: 503,
+          message: 'Hermes gateway is unreachable while polling run status.',
+          cause: error,
+        }));
+      }
+      if (!response.ok) {
+        return failRun(new ExecutionError({
+          provider: 'hermes',
+          code: errorCodeForStatus(response.status),
+          status: response.status,
+          message: `Hermes gateway returned HTTP ${response.status} polling run ${runId}.`,
+        }));
+      }
+      const parsed = await this.parseJsonBody(response);
+      if (parsed.kind === 'error') {
+        markExecutionRunFailed(ariesRunId, {
+          code: parsed.result.kind === 'gateway_error' ? parsed.result.error.code : 'response_invalid',
+          message: parsed.result.kind === 'gateway_error' ? parsed.result.error.message : 'Hermes returned invalid JSON.',
+        });
+        return parsed.result;
+      }
+      const record = recordValue(parsed.value);
+      if (!record || typeof record.status !== 'string') {
+        return failRun(new ExecutionError({
+          provider: 'hermes',
+          code: 'response_invalid',
+          status: response.status,
+          message: `Hermes poll response for run ${runId} is missing a status field.`,
+        }));
+      }
+      if (TERMINAL_STATUSES.has(record.status)) {
+        return this.resultFromTerminalRun(runId, ariesRunId, record, response.status);
+      }
+      await this.sleep(intervalMs);
+    }
+
+    return failRun(new ExecutionError({
+      provider: 'hermes',
+      code: 'server_error',
+      status: 504,
+      message: `Hermes run ${runId} did not reach a terminal status within ${timeoutMs}ms.`,
+    }));
+  }
+
+  private resultFromTerminalRun(
+    runId: string,
+    ariesRunId: string,
+    record: Record<string, unknown>,
+    httpStatus: number,
+  ): WorkflowExecutionResult {
+    const status = typeof record.status === 'string' ? record.status : '';
+    if (status === 'failed') {
+      const errorText = typeof record.error === 'string' && record.error
+        ? record.error
+        : `Hermes run ${runId} failed without an error message.`;
+      const error = new ExecutionError({ provider: 'hermes', code: 'server_error', status: httpStatus, message: errorText });
+      markExecutionRunFailed(ariesRunId, { code: error.code, message: error.message });
+      return gatewayErrorResult(error);
+    }
+    if (status === 'cancelled' || status === 'stopped') {
+      const error = new ExecutionError({ provider: 'hermes', code: 'server_error', status: httpStatus, message: `Hermes run ${runId} ended with status ${status}.` });
+      markExecutionRunFailed(ariesRunId, { code: error.code, message: error.message });
+      return gatewayErrorResult(error);
+    }
+
+    // status === 'completed'
+    const outputText = typeof record.output === 'string' ? record.output : '';
+    const parsedOutput = tryParseJson(outputText);
+    const envelopeRecord = recordValue(parsedOutput);
+    const envelope: WorkflowEnvelope = envelopeRecord ?? {
+      status: 'ok',
+      provider: 'hermes',
+      run_id: runId,
+      output_text: outputText,
+    };
+    if (typeof envelope.status !== 'string') {
+      envelope.status = 'ok';
+    }
+    if (envelope.run_id === undefined) {
+      envelope.run_id = runId;
+    }
+    return {
+      kind: 'ok',
+      envelope,
+      primaryOutput: primaryOutputRecord(envelope),
+    };
+  }
+
+  private async parseJsonBody(
+    response: Response,
+  ): Promise<{ kind: 'value'; value: unknown } | { kind: 'error'; result: WorkflowExecutionResult }> {
+    try {
+      return { kind: 'value', value: await response.json() };
+    } catch (error) {
+      return {
+        kind: 'error',
+        result: gatewayErrorResult(new ExecutionError({
+          provider: 'hermes',
+          code: 'response_invalid',
+          status: response.status,
+          message: 'Hermes gateway returned invalid JSON.',
+          cause: error,
+        })),
+      };
+    }
+  }
+}

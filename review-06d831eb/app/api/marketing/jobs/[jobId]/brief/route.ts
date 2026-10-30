@@ -1,0 +1,145 @@
+import { NextResponse } from 'next/server';
+
+import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
+import {
+  appendSocialContentHistory,
+  ensureSocialContentWorkspaceRecord,
+  saveSocialContentWorkspaceAssets,
+  saveSocialContentWorkspaceRecord,
+  type SocialContentWorkspaceAssetUpload,
+} from '@/backend/marketing/workspace-store';
+import { loadSocialContentJobRuntime, saveSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
+import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+
+function coerceFieldValue(value: FormDataEntryValue | null): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function parseStringListField(entries: FormDataEntryValue[]): string[] {
+  const fromEntries = entries
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (fromEntries.length > 1) {
+    return fromEntries;
+  }
+
+  const raw = fromEntries[0];
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+async function parseBriefRequest(req: Request): Promise<{
+  payload: Record<string, unknown>;
+  uploads: SocialContentWorkspaceAssetUpload[];
+}> {
+  const contentType = req.headers.get('content-type') || '';
+
+  if (contentType.includes('multipart/form-data')) {
+    const formData = await req.formData();
+    const uploadEntries = formData.getAll('brandAssets');
+    const uploads: SocialContentWorkspaceAssetUpload[] = [];
+
+    for (const entry of uploadEntries) {
+      if (!(entry instanceof File) || entry.size <= 0) {
+        continue;
+      }
+      uploads.push({
+        name: entry.name,
+        contentType: entry.type || 'application/octet-stream',
+        data: Buffer.from(await entry.arrayBuffer()),
+      });
+    }
+
+    return {
+      payload: {
+        websiteUrl: coerceFieldValue(formData.get('websiteUrl')),
+        brandVoice: coerceFieldValue(formData.get('brandVoice')),
+        styleVibe: coerceFieldValue(formData.get('styleVibe')),
+        visualReferences: parseStringListField(formData.getAll('visualReferences')),
+        mustUseCopy: coerceFieldValue(formData.get('mustUseCopy')),
+        mustAvoidAesthetics: coerceFieldValue(formData.get('mustAvoidAesthetics')),
+        notes: coerceFieldValue(formData.get('notes')),
+      },
+      uploads,
+    };
+  }
+
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = (await req.json()) as Record<string, unknown>;
+  } catch {
+    payload = {};
+  }
+
+  return { payload, uploads: [] };
+}
+
+export async function handlePatchMarketingJobBrief(
+  jobId: string,
+  req: Request,
+  tenantContextLoader?: TenantContextLoader,
+) {
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
+  if ('response' in tenantResult) {
+    return tenantResult.response;
+  }
+  const tenantId = tenantResult.tenantContext.tenantId;
+
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+  if (!runtimeDoc || runtimeDoc.tenant_id !== tenantId) {
+    return NextResponse.json({ error: 'Marketing job not found.' }, { status: 404 });
+  }
+
+  const requestBody = await parseBriefRequest(req);
+  const record = await ensureSocialContentWorkspaceRecord({
+    jobId,
+    tenantId,
+    payload: {
+      ...(runtimeDoc.inputs.request as Record<string, unknown> | undefined),
+      ...requestBody.payload,
+    },
+  });
+
+  if (requestBody.uploads.length > 0) {
+    saveSocialContentWorkspaceAssets(record, requestBody.uploads);
+  }
+
+  appendSocialContentHistory(record, {
+    actor: 'operator',
+    type: 'comment',
+    workflowState: record.workflow_state,
+    note: 'Campaign brief updated.',
+  });
+  saveSocialContentWorkspaceRecord(record);
+  runtimeDoc.inputs.request = {
+    ...(runtimeDoc.inputs.request as Record<string, unknown> | undefined),
+    ...requestBody.payload,
+  };
+  saveSocialContentJobRuntime(jobId, runtimeDoc);
+  invalidateMarketingJobStatus(jobId);
+  // A brief edit mutates runtimeDoc.inputs.request (name/goal/offer), which the
+  // denormalized campaign-list row derives (name/objective/summary) — AND a
+  // brand-asset upload changes brand-review existence, hence pending_approval_count.
+  // Recompute+persist BOTH denorm fields UNCONDITIONALLY (not just on uploads) so
+  // the list reflects the edited brief without re-hydrating. Change-only writes
+  // make the no-op (nothing changed) cheap, and a failure is non-fatal.
+  await recomputeAndPersistPendingApprovalCount(jobId, { runtimeDoc }).catch((err) => {
+    console.error('[brief] denorm recompute failed', err);
+  });
+
+  return NextResponse.json({ ok: true }, { status: 200 });
+}
+
+export async function PATCH(req: Request, { params }: { params: Promise<{ jobId: string }> }) {
+  const { jobId } = await params;
+  return handlePatchMarketingJobBrief(jobId, req);
+}

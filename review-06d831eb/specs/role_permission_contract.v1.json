@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/role_permission_contract.v1.json",
+  "artifact_name": "role_permission_contract",
+  "artifact_type": "authorization_contract_spec",
+  "schema_version": "1.0.0",
+  "description": "Machine-checkable authorization contract mapping API operations to required permissions and scope constraints.",
+  "policy_source": "./specs/rbac_matrix.v1.json",
+  "contract": {
+    "identity_claim_requirements": {
+      "required_claims": [
+        "sub",
+        "role",
+        "tenant_id"
+      ],
+      "optional_claims": [
+        "scopes",
+        "actor_type",
+        "session_id"
+      ],
+      "service_actor_bypass_tenant_claim_roles": [
+        "platform_owner",
+        "platform_operator",
+        "automation_service",
+        "security_auditor"
+      ]
+    },
+    "roles": [
+      "platform_owner",
+      "platform_operator",
+      "tenant_admin",
+      "tenant_analyst",
+      "tenant_viewer",
+      "automation_service",
+      "security_auditor"
+    ],
+    "permissions": [
+      "onboarding.start",
+      "onboarding.status.read",
+      "marketing.job.start",
+      "marketing.job.status.read",
+      "marketing.job.approve",
+      "video.job.start",
+      "video.job.status.read",
+      "video.job.approve",
+      "runtime.artifact.read",
+      "runtime.artifact.write",
+      "workflow.invoke",
+      "workflow.resume",
+      "audit.log.read",
+      "rbac.policy.manage"
+    ],
+    "operation_permissions": [
+      {
+        "operation_id": "onboardingStart",
+        "method": "POST",
+        "path": "/api/onboarding/start",
+        "required_any_permissions": [
+          "onboarding.start"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "onboardingStatusByTenant",
+        "method": "GET",
+        "path": "/api/onboarding/status/:tenantId",
+        "required_any_permissions": [
+          "onboarding.status.read"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "postMarketingJobs",
+        "method": "POST",
+        "path": "/api/marketing/jobs",
+        "required_any_permissions": [
+          "marketing.job.start"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "getMarketingJobById",
+        "method": "GET",
+        "path": "/api/marketing/jobs/:jobId",
+        "required_any_permissions": [
+          "marketing.job.status.read"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "postMarketingJobApprove",
+        "method": "POST",
+        "path": "/api/marketing/jobs/:jobId/approve",
+        "required_any_permissions": [
+          "marketing.job.approve"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "startVideoJob",
+        "method": "POST",
+        "path": "/api/video/jobs",
+        "required_any_permissions": [
+          "video.job.start"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "getVideoJobStatus",
+        "method": "GET",
+        "path": "/api/video/jobs/:videoJobId",
+        "required_any_permissions": [
+          "video.job.status.read"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "approveVideoJob",
+        "method": "POST",
+        "path": "/api/video/jobs/:videoJobId/approve",
+        "required_any_permissions": [
+          "video.job.approve"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "tenantAdminInviteMember",
+        "method": "POST",
+        "path": "/api/tenant-admin/members/invite",
+        "required_any_permissions": [
+          "rbac.policy.manage"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "tenantAdminUpdateMemberRole",
+        "method": "PATCH",
+        "path": "/api/tenant-admin/members/role",
+        "required_any_permissions": [
+          "rbac.policy.manage"
+        ],
+        "tenant_scope": "required"
+      },
+      {
+        "operation_id": "tenantAdminUpdateSettings",
+        "method": "PATCH",
+        "path": "/api/tenant-admin/settings",
+        "required_any_permissions": [
+          "rbac.policy.manage"
+        ],
+        "tenant_scope": "required"
+      }
+    ],
+    "evaluation_rules": [
+      {
+        "rule_id": "role-must-exist",
+        "description": "role claim must map to known role catalog",
+        "decision_on_fail": "deny"
+      },
+      {
+        "rule_id": "permission-required",
+        "description": "actor role must contain at least one required permission for operation",
+        "decision_on_fail": "deny"
+      },
+      {
+        "rule_id": "tenant-scope-enforcement",
+        "description": "for tenant-scoped roles, actor tenant_id must equal resource tenant_id",
+        "decision_on_fail": "deny"
+      },
+      {
+        "rule_id": "default-deny",
+        "description": "operations not listed in operation_permissions are denied by default",
+        "decision_on_fail": "deny"
+      }
+    ],
+    "decision_shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allow",
+        "role",
+        "operation_id",
+        "evaluated_permissions",
+        "matched_permissions",
+        "deny_reason"
+      ],
+      "properties": {
+        "allow": {
+          "type": "boolean"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "platform_owner",
+            "platform_operator",
+            "tenant_admin",
+            "tenant_analyst",
+            "tenant_viewer",
+            "automation_service",
+            "security_auditor"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evaluated_permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "matched_permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "unknown_role",
+            "missing_permission",
+            "tenant_scope_mismatch",
+            "unknown_operation",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

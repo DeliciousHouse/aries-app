@@ -1,0 +1,138 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+import React, { isValidElement, type ReactNode } from 'react';
+
+import HomePage from '../app/page';
+import FeaturesPage from '../app/features/page';
+import DocumentationPage from '../app/documentation/page';
+import ContactPage from '../app/contact/page';
+import ApiDocsPage from '../app/api-docs/page';
+import DonorHomePage from '../frontend/donor/marketing/home-page';
+import { DonorMarketingShell } from '../frontend/donor/marketing/chrome';
+import MarketingLayout from '../frontend/marketing/MarketingLayout';
+import { resolveProjectRoot } from './helpers/project-root';
+
+const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
+
+function readRepoFile(relativePath: string) {
+  return readFileSync(path.join(PROJECT_ROOT, relativePath), 'utf8');
+}
+
+function normalizeWhitespace(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function collectText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') {
+    return '';
+  }
+
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node);
+  }
+
+  if (Array.isArray(node)) {
+    return node.map((child) => collectText(child)).join(' ');
+  }
+
+  if (isValidElement(node)) {
+    return collectText((node.props as { children?: ReactNode }).children);
+  }
+
+  return '';
+}
+
+async function withReactGlobal<T>(fn: () => T | Promise<T>): Promise<T> {
+  const g = globalThis as Record<string, unknown>;
+  const prevReact = g.React;
+  g.React = React;
+  try {
+    return await Promise.resolve(fn());
+  } finally {
+    if (prevReact === undefined) {
+      delete g.React;
+    } else {
+      g.React = prevReact;
+    }
+  }
+}
+
+test('public marketing pages return valid elements with expected route shells and stable content markers', async () => {
+  await withReactGlobal(() => {
+    const homeElement = HomePage();
+    assert.equal(isValidElement(homeElement), true);
+    assert.equal(homeElement.type, DonorHomePage);
+
+    const homeSource = readRepoFile('frontend/donor/marketing/home-page.tsx');
+    const chromeSource = readRepoFile('frontend/donor/marketing/chrome.tsx');
+    assert.match(homeSource, /Nothing goes live without your approval/);
+    assert.match(homeSource, /Plan weekly social content, approve creative, publish safely/);
+    assert.match(homeSource, /Start with your business/);
+    assert.match(homeSource, /\/onboarding\/start/);
+    assert.doesNotMatch(homeSource, /\/onboarding\/pipeline-intake/);
+    assert.match(chromeSource, /\/onboarding\/start/);
+    assert.doesNotMatch(chromeSource, /\/onboarding\/pipeline-intake/);
+    assert.doesNotMatch(homeSource, /Autonomous Growth Engine/);
+    assert.doesNotMatch(homeSource, /Start Automating/);
+    assert.doesNotMatch(homeSource, /See Runtime/);
+
+    const shellElement = DonorMarketingShell({ children: null });
+    assert.equal(isValidElement(shellElement), true);
+
+    const featuresElement = FeaturesPage();
+    assert.equal(isValidElement(featuresElement), true);
+    assert.equal(featuresElement.type, MarketingLayout);
+    const featuresText = normalizeWhitespace(collectText(featuresElement.props.children));
+    assert.match(featuresText, /market with confidence/);
+    assert.match(featuresText, /Ready to see how it works\?/);
+    assert.match(featuresText, /Start with your business/);
+    const featuresSource = readRepoFile('app/features/page.tsx');
+    assert.match(featuresSource, /\/onboarding\/start/);
+    assert.doesNotMatch(featuresSource, /\/onboarding\/pipeline-intake/);
+
+    const documentationElement = DocumentationPage();
+    assert.equal(isValidElement(documentationElement), true);
+    assert.equal(documentationElement.type, MarketingLayout);
+
+    const contactElement = ContactPage();
+    assert.equal(isValidElement(contactElement), true);
+    assert.equal(contactElement.type, MarketingLayout);
+    const contactText = normalizeWhitespace(collectText(contactElement.props.children));
+    assert.match(contactText, /support@sugarandleather\.com/);
+    assert.match(contactText, /Email support/);
+    assert.match(contactText, /Start with your business/);
+    const contactSource = readRepoFile('app/contact/page.tsx');
+    assert.match(contactSource, /const SUPPORT_EMAIL = 'support@sugarandleather\.com';/);
+    assert.match(contactSource, /const SUPPORT_MAILTO = `mailto:\$\{SUPPORT_EMAIL\}\?subject=Aries%20support%20request`;/);
+    assert.match(contactSource, /\/onboarding\/start/);
+
+    const apiDocsElement = ApiDocsPage();
+    assert.equal(isValidElement(apiDocsElement), true);
+    assert.equal(apiDocsElement.type, MarketingLayout);
+    const apiDocsText = normalizeWhitespace(collectText(apiDocsElement.props.children));
+    assert.match(apiDocsText, /\/api\/integrations/);
+    assert.match(apiDocsText, /\/api\/marketing\/jobs/);
+    assert.match(apiDocsText, /Browser-safe routes for the current Aries contract/);
+  });
+});
+
+test('the authenticated route registry uses the required v1 top navigation labels', () => {
+  const routeSource = readRepoFile('frontend/app-shell/routes.ts');
+
+  assert.match(routeSource, /title:\s*'Home'/);
+  assert.match(routeSource, /title:\s*'Social Content'/);
+  assert.match(routeSource, /title:\s*'Calendar'/);
+  // AA-229/PR2b: 'results' (title 'Results', /dashboard/results) is retired —
+  // its content moved to /insights (Section 10 — Weekly recap). 'Insights' and
+  // '/insights' already existed pre-migration, so asserting their presence
+  // alone pins nothing the retirement could break; the negative assertion is
+  // what actually guards against 'results' silently coming back.
+  assert.match(routeSource, /title:\s*'Insights'/);
+  assert.match(routeSource, /href:\s*'\/dashboard\/social-content'/);
+  assert.match(routeSource, /href:\s*'\/insights'/);
+  assert.doesNotMatch(routeSource, /title:\s*'Results'/);
+  assert.doesNotMatch(routeSource, /'\/dashboard\/results'/);
+});

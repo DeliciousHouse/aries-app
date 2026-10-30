@@ -1,0 +1,152 @@
+export type AppRouteId =
+  | 'home'
+  | 'newCampaign'
+  | 'brandReview'
+  | 'strategyReview'
+  | 'creativeReview'
+  | 'publishStatus'
+  | 'socialContent'
+  | 'posts'
+  | 'calendar'
+  | 'analytics'
+  | 'insights'
+  | 'comments'
+  | 'review'
+  | 'businessProfile'
+  | 'channelIntegrations'
+  | 'settings';
+
+export interface AppRoute {
+  id: AppRouteId;
+  title: string;
+  href: string;
+  section: 'primary' | 'utility';
+  description: string;
+}
+
+export const APP_ROUTES: readonly AppRoute[] = [
+  {
+    id: 'home',
+    title: 'Home',
+    href: '/dashboard',
+    section: 'primary',
+    description: 'Executive command center for approvals, schedule, active posts, and results.'
+  },
+  {
+    id: 'newCampaign',
+    title: 'New Social Content',
+    href: '/dashboard/social-content/new',
+    section: 'primary',
+    description: 'Start social content with a persisted brief, uploads, and review-ready workflow state.'
+  },
+  {
+    id: 'brandReview',
+    title: 'Brand Review',
+    href: '/dashboard/brand-review',
+    section: 'primary',
+    description: 'Review website analysis, brand bible output, design system, and uploaded brand assets.'
+  },
+  {
+    id: 'strategyReview',
+    title: 'Strategy Review',
+    href: '/dashboard/strategy-review',
+    section: 'primary',
+    description: 'Review the social content plan, strategy packet, and revision history before production.'
+  },
+  {
+    id: 'creativeReview',
+    title: 'Creative Review',
+    href: '/dashboard/creative-review',
+    section: 'primary',
+    description: 'Approve or request changes on every reviewable asset with full-preview access.'
+  },
+  {
+    id: 'publishStatus',
+    title: 'Publish / Status',
+    href: '/dashboard/publish-status',
+    section: 'primary',
+    description: 'See workflow state, publish gating reasons, and what is truly ready to publish.'
+  },
+  {
+    id: 'socialContent',
+    title: 'Social Content',
+    href: '/dashboard/social-content',
+    section: 'utility',
+    description: 'Social content list and direct links into each social content job workspace.'
+  },
+  {
+    id: 'posts',
+    title: 'Posts',
+    href: '/dashboard/posts',
+    section: 'utility',
+    description: 'Ready-to-publish inventory across images, scripts, landing pages, and paused platform ads.'
+  },
+  {
+    id: 'calendar',
+    title: 'Calendar',
+    href: '/dashboard/calendar',
+    section: 'utility',
+    description: 'Human-readable schedule visibility across posts and channels.'
+  },
+  {
+    id: 'analytics',
+    title: 'Analytics',
+    href: '/dashboard/analytics',
+    section: 'utility',
+    description: 'Facebook performance: views, followers, engagement, and per-post metrics.'
+  },
+  {
+    id: 'insights',
+    title: 'Insights',
+    href: '/insights',
+    section: 'utility',
+    description: 'Cross-channel analytics: performance, audience, conversations, and what Aries did, from real data.'
+  },
+  {
+    id: 'comments',
+    title: 'Comments',
+    href: '/dashboard/comments',
+    section: 'utility',
+    description: 'Facebook comment inbox grouped by post, with native reply when enabled.'
+  },
+  {
+    id: 'review',
+    title: 'Review Queue',
+    href: '/review',
+    section: 'utility',
+    description: 'Approval queue for anything that could affect a launch.'
+  },
+  {
+    id: 'businessProfile',
+    title: 'Business Profile',
+    href: '/dashboard/settings/business-profile',
+    section: 'utility',
+    description: 'Business context, website, goals, and launch approvals.'
+  },
+  {
+    id: 'channelIntegrations',
+    title: 'Channel Integrations',
+    href: '/dashboard/settings/channel-integrations',
+    section: 'utility',
+    description: 'Connect publishing channels so Aries can schedule and monitor.'
+  },
+  {
+    id: 'settings',
+    title: 'Settings',
+    href: '/dashboard/settings',
+    section: 'utility',
+    description: 'Business profile, channels, team approvals, and other account controls.'
+  }
+] as const;
+
+export function getRouteById(routeId: AppRouteId): AppRoute {
+  const route = APP_ROUTES.find((entry) => entry.id === routeId);
+  if (!route) {
+    throw new Error(`Unknown app route id: ${routeId}`);
+  }
+  return route;
+}
+
+export function getSectionRoutes(section: AppRoute['section']): AppRoute[] {
+  return APP_ROUTES.filter((route) => route.section === section);
+}

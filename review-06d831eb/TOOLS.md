@@ -1,0 +1,36 @@
+# TOOLS.md — Aries App Environment Notes
+
+## Workspace
+
+- Primary repo: `/home/node/aries-app`
+- Main docs: `README.md`, `SETUP.md`, `ROUTE_MANIFEST.md`
+
+## Boundary reminder
+
+Treat this checkout as `aries-app` only.
+
+- Do not reuse sibling-project paths, prompts, or deployment notes here.
+- If a task depends on another repo, call that out explicitly instead of folding it into `aries-app`.
+
+## Runtime truth rules
+
+When describing environment behavior, distinguish between:
+
+- verified current state
+- repo or config default
+- remembered prior context
+- inference
+
+Do not upgrade remembered context into current repo truth without checking.
+
+## Social-content execution default
+
+- Aries weekly social content runs are Hermes-native by default (`POST /api/social-content/jobs` -> Hermes -> `/api/internal/hermes/runs`).
+- Hermes owns ChatGPT/OpenAI auth before image/video generation is enabled for weekly social content.
+- Legacy OpenClaw/Lobster references should be labeled deprecated and kept only for compatibility paths.
+
+## Validation shortcuts
+
+- `npm run validate:repo-boundary`
+- `npm run validate:banned-patterns`
+- `npm run verify`

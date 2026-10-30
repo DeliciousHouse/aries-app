@@ -1,0 +1,740 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import sharp from 'sharp';
+
+import { ingestProductionCreativeAssetsToDb } from '../../backend/marketing/ingest-production-assets';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+
+// ---------------------------------------------------------------------------
+// Minimal runtime document factory
+// ---------------------------------------------------------------------------
+
+function makeDoc(overrides: {
+  jobId?: string;
+  tenantId?: string;
+  creativeAssets?: unknown[];
+}): SocialContentJobRuntimeDocument {
+  const jobId = overrides.jobId ?? 'mkt_test_job_id';
+  const creativeAssets = overrides.creativeAssets ?? [];
+  return {
+    schema_name: 'marketing_job_state_schema',
+    schema_version: '1.0.0',
+    job_id: jobId,
+    tenant_id: overrides.tenantId ?? '42',
+    job_type: 'weekly_social_content',
+    state: 'completed',
+    status: 'completed',
+    current_stage: 'production',
+    stage_order: ['research', 'strategy', 'production', 'publish'],
+    stages: {
+      research: {
+        stage: 'research',
+        status: 'completed',
+        started_at: null,
+        completed_at: null,
+        failed_at: null,
+        run_id: null,
+        summary: null,
+        primary_output: null,
+        outputs: {},
+        artifacts: [],
+        errors: [],
+      },
+      strategy: {
+        stage: 'strategy',
+        status: 'completed',
+        started_at: null,
+        completed_at: null,
+        failed_at: null,
+        run_id: null,
+        summary: null,
+        primary_output: null,
+        outputs: {},
+        artifacts: [],
+        errors: [],
+      },
+      production: {
+        stage: 'production',
+        status: 'completed',
+        started_at: null,
+        completed_at: null,
+        failed_at: null,
+        run_id: null,
+        summary: null,
+        primary_output: {
+          artifacts: {
+            creative_assets: creativeAssets,
+          },
+        },
+        outputs: {},
+        artifacts: [],
+        errors: [],
+      },
+      publish: {
+        stage: 'publish',
+        status: 'not_started',
+        started_at: null,
+        completed_at: null,
+        failed_at: null,
+        run_id: null,
+        summary: null,
+        primary_output: null,
+        outputs: {},
+        artifacts: [],
+        errors: [],
+      },
+    },
+    approvals: { current: null, history: [] },
+    publish_config: { platforms: [], live_publish_platforms: [], video_render_platforms: [] },
+    brand_kit: null,
+    inputs: { request: {}, brand_url: 'https://example.com' },
+    history: [],
+    errors: [],
+    last_error: null,
+  } as unknown as SocialContentJobRuntimeDocument;
+}
+
+// ---------------------------------------------------------------------------
+// Mock pool builder
+// ---------------------------------------------------------------------------
+
+type QueryCall = { sql: string; params: unknown[] };
+
+function makeMockPool(rowCount = 1) {
+  const calls: QueryCall[] = [];
+  const pool = {
+    query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params: params ?? [] });
+      return Promise.resolve({ rows: rowCount > 0 ? [{ id: 'uuid-1' }] : [], rowCount });
+    },
+  };
+  return { pool, calls };
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+test('ingestProductionCreativeAssetsToDb — returns zero counts when production.primary_output is null', async () => {
+  const doc = makeDoc({});
+  (doc.stages.production as Record<string, unknown>).primary_output = null;
+  const { pool } = makeMockPool();
+  const result = await ingestProductionCreativeAssetsToDb({
+    jobId: 'mkt_no_output',
+    tenantId: 42,
+    doc,
+    pool,
+  });
+  assert.deepEqual(result, { inserted: 0, skipped: 0, total: 0, durableStored: 0 });
+});
+
+test('ingestProductionCreativeAssetsToDb — returns zero counts when creative_assets array is absent', async () => {
+  const doc = makeDoc({});
+  (doc.stages.production.primary_output as Record<string, unknown>) = { artifacts: {} };
+  const { pool } = makeMockPool();
+  const result = await ingestProductionCreativeAssetsToDb({
+    jobId: 'mkt_no_assets',
+    tenantId: 42,
+    doc,
+    pool,
+  });
+  assert.deepEqual(result, { inserted: 0, skipped: 0, total: 0, durableStored: 0 });
+});
+
+// ---------------------------------------------------------------------------
+// Hermes media mount harness
+//
+// Production reality: Hermes reports `creative_assets[].path` as a HOST path
+// (e.g. /home/node/.hermes/profiles/<profile>/cache/images/x.png) that the
+// Aries container CANNOT read. The container can only read the image cache via
+// the HERMES_IMAGE_CACHE_MOUNT bind-mount, keyed by basename. Each test sets up
+// a temp dir to act as that mount and points HERMES_IMAGE_CACHE_MOUNT at it.
+// ---------------------------------------------------------------------------
+
+async function withHermesMediaMount<T>(
+  fn: (mount: string, hostImagePath: (basename: string) => string) => Promise<T>,
+): Promise<T> {
+  const mount = path.join(tmpdir(), `aries-hermes-media-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await mkdir(mount, { recursive: true });
+  const prev = process.env.HERMES_IMAGE_CACHE_MOUNT;
+  process.env.HERMES_IMAGE_CACHE_MOUNT = mount;
+  // A Hermes host path the container never has on disk — the regression vector.
+  const hostImagePath = (basename: string) =>
+    `/home/node/.hermes/profiles/aries-content-generator/cache/images/${basename}`;
+  try {
+    return await fn(mount, hostImagePath);
+  } finally {
+    if (prev === undefined) delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+    else process.env.HERMES_IMAGE_CACHE_MOUNT = prev;
+    await rm(mount, { recursive: true, force: true });
+  }
+}
+
+test('ingestProductionCreativeAssetsToDb — skips entries with empty path', async () => {
+  await withHermesMediaMount(async () => {
+    const doc = makeDoc({
+      creativeAssets: [
+        { assetId: 'a1', type: 'generated_image', path: '' },
+        { assetId: 'a2', type: 'generated_image' },
+      ],
+    });
+    const { pool, calls } = makeMockPool();
+    const result = await ingestProductionCreativeAssetsToDb({
+      jobId: 'mkt_empty_path',
+      tenantId: 42,
+      doc,
+      pool,
+    });
+    assert.equal(result.total, 2);
+    assert.equal(result.skipped, 2);
+    assert.equal(result.inserted, 0);
+    assert.equal(calls.length, 0, 'No DB calls should be made for entries with empty path');
+  });
+});
+
+// REGRESSION: publish-ingestion bug. Hermes reports a host-side path the Aries
+// container cannot read; the image is only reachable via the mount by basename.
+// Before the fix, ingest readFile()'d the raw host path -> ENOENT -> 0 rows
+// inserted -> "Generated assets 0 / No launch items" in the operator dashboard.
+test('ingestProductionCreativeAssetsToDb — resolves Hermes host path via mount by basename', async () => {
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const basename = 'openai_codex_gpt-image-2-low_20260521_012107_1aeff6b2.png';
+    // The file exists ONLY at <mount>/<basename> — never at the reported host path.
+    await writeFile(path.join(mount, basename), Buffer.from('fakepngdata'));
+
+    const doc = makeDoc({
+      creativeAssets: [
+        {
+          assetId: 'img_1',
+          type: 'generated_image',
+          // The exact path shape Hermes emits post three-profile routing.
+          path: hostImagePath(basename),
+          prompt: 'test prompt',
+        },
+      ],
+    });
+    const { pool, calls } = makeMockPool(1);
+    const result = await ingestProductionCreativeAssetsToDb({
+      jobId: 'mkt_f5f8464b',
+      tenantId: 15,
+      doc,
+      pool,
+    });
+
+    assert.equal(result.total, 1);
+    assert.equal(result.inserted, 1, 'image reachable via mount must be ingested');
+    assert.equal(result.skipped, 0);
+    assert.equal(calls.length, 1, 'the resolved row must reach the DB');
+
+    const { sql, params } = calls[0];
+    assert.equal(params[2], 'img_1', 'source_asset_id preserved');
+    // served_asset_ref is id-based, built in the INSERT from the row's OWN
+    // subselect-generated id (g.id) — NOT a data-modifying CTE, whose outer
+    // UPDATE runs on a pre-INSERT snapshot and silently leaves the ref NULL
+    // (the #517 regression). It must never reintroduce the `ins.id` CTE form.
+    assert.ok(
+      sql.includes("'/api/internal/hermes/media/' || g.id::text"),
+      'served_asset_ref must be built in the INSERT from the subselect id (g.id)',
+    );
+    assert.ok(
+      !/WITH\s+ins\s+AS/i.test(sql),
+      'must NOT use the data-modifying CTE form that leaves served_asset_ref NULL',
+    );
+    assert.equal(
+      params[3],
+      path.join(mount, basename),
+      'storage_key must be the readable mount path, not the unreadable host path',
+    );
+    assert.ok(typeof params[4] === 'string' && (params[4] as string).length === 64, 'checksum sha256 hex');
+  });
+});
+
+test('ingestProductionCreativeAssetsToDb — inserts row with correct SQL shape', async () => {
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const basename = 'openai_codex_abc123.png';
+    await writeFile(path.join(mount, basename), Buffer.from('fakepngdata'));
+
+    const doc = makeDoc({
+      creativeAssets: [
+        {
+          assetId: 'asset-001',
+          type: 'generated_image',
+          path: hostImagePath(basename),
+          prompt: 'test prompt',
+          placement: 'feed',
+        },
+      ],
+    });
+    const { pool, calls } = makeMockPool(1);
+    const result = await ingestProductionCreativeAssetsToDb({
+      jobId: 'mkt_insert_test',
+      tenantId: 99,
+      doc,
+      pool,
+    });
+
+    assert.equal(result.total, 1);
+    assert.equal(result.inserted, 1);
+    assert.equal(result.skipped, 0);
+    assert.equal(calls.length, 1);
+
+    const { sql, params } = calls[0];
+
+    // Assert the INSERT shape and ON CONFLICT clause
+    assert.ok(sql.includes('INSERT INTO creative_assets'), 'SQL must INSERT INTO creative_assets');
+    // The ON CONFLICT must repeat the partial unique index predicate
+    // (`WHERE checksum IS NOT NULL`) or Postgres rejects every INSERT. That it
+    // actually runs against real Postgres is covered by the live-DB test.
+    assert.ok(
+      sql.includes("ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING"),
+      'SQL must have ON CONFLICT with the partial-index predicate',
+    );
+    // served_asset_ref is id-based, built in the INSERT from the row's OWN
+    // subselect-generated id (g.id). The data-modifying CTE form leaves it NULL
+    // (the #517 regression) — guard against its reintroduction.
+    assert.ok(
+      sql.includes("'/api/internal/hermes/media/' || g.id::text"),
+      'served_asset_ref must be built in the INSERT from the subselect id (g.id)',
+    );
+    assert.ok(
+      !/WITH\s+ins\s+AS/i.test(sql),
+      'must NOT use the data-modifying CTE form that leaves served_asset_ref NULL',
+    );
+    assert.ok(sql.includes("'generated_by_aries'"), 'source_type must be generated_by_aries');
+    // storage_kind is now bound as $8 (so the logo-composite path can swap it to
+    // 'ingested_asset'); the no-framing default is 'runtime_asset'.
+    assert.ok(sql.includes('$8, $4, '), 'storage_kind must be bound as $8 and storage_key as $4');
+    assert.ok(sql.includes("'generated'"), 'permission_scope must be generated');
+    // media_type ($9) and aspect_ratio ($10) are now bound as params, not SQL literals —
+    // they must NOT appear as hardcoded strings in the SQL.
+    assert.ok(!sql.includes("'image'"), 'media_type must be bound as $9, not a hardcoded literal');
+    assert.ok(!sql.includes("'4:5'"), 'aspect_ratio must be bound as $10, not a hardcoded literal');
+
+    // params: [tenantId, jobId, sourceAssetId, storageKey, checksum, batch, index, storageKind,
+    //          mediaType, aspectRatio, widthPx, heightPx, durationSeconds]
+    assert.equal(params[0], 99, 'param $1 must be tenantId');
+    assert.equal(params[1], 'mkt_insert_test', 'param $2 must be jobId');
+    assert.equal(params[2], 'asset-001', 'param $3 must be sourceAssetId');
+    assert.equal(params[3], path.join(mount, basename), 'param $4 must be the readable mount storagePath');
+    assert.ok(typeof params[4] === 'string' && (params[4] as string).length === 64, 'param $5 must be a sha256 hex string');
+    assert.equal(params[7], 'runtime_asset', 'param $8 must default to runtime_asset (no framing)');
+    // After the video dims PR, $9=mediaType and $10=aspectRatio are params (not literals).
+    assert.equal(params[8], 'image', 'param $9 must be mediaType=image for a generated_image');
+    assert.equal(params[9], '4:5', 'param $10 must be aspectRatio=4:5 for a feed image entry');
+  });
+});
+
+test('ingestProductionCreativeAssetsToDb — skips when HERMES_IMAGE_CACHE_MOUNT is unset', async () => {
+  const prev = process.env.HERMES_IMAGE_CACHE_MOUNT;
+  delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+  try {
+    const doc = makeDoc({
+      creativeAssets: [
+        {
+          assetId: 'img_1',
+          type: 'generated_image',
+          path: '/home/node/.hermes/profiles/aries-content-generator/cache/images/x.png',
+        },
+      ],
+    });
+    const { pool, calls } = makeMockPool(1);
+    const result = await ingestProductionCreativeAssetsToDb({
+      jobId: 'mkt_no_mount',
+      tenantId: 1,
+      doc,
+      pool,
+    });
+    assert.equal(result.total, 1);
+    assert.equal(result.skipped, 1, 'unresolvable path must be skipped, not crash');
+    assert.equal(result.inserted, 0);
+    assert.equal(calls.length, 0, 'no DB call when path cannot be resolved');
+  } finally {
+    if (prev === undefined) delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+    else process.env.HERMES_IMAGE_CACHE_MOUNT = prev;
+  }
+});
+
+test('ingestProductionCreativeAssetsToDb — ON CONFLICT: rowCount=0 counts as skipped', async () => {
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const basename = 'openai_gpt_dup.png';
+    await writeFile(path.join(mount, basename), Buffer.from('dupdata'));
+
+    const doc = makeDoc({
+      creativeAssets: [{ assetId: 'dup-asset', type: 'generated_image', path: hostImagePath(basename) }],
+    });
+    const { pool } = makeMockPool(0);
+    const result = await ingestProductionCreativeAssetsToDb({
+      jobId: 'mkt_conflict_test',
+      tenantId: 5,
+      doc,
+      pool,
+    });
+
+    assert.equal(result.total, 1);
+    assert.equal(result.inserted, 0);
+    assert.equal(result.skipped, 1, 'rowCount=0 (conflict) must count as skipped');
+  });
+});
+
+test('ingestProductionCreativeAssetsToDb — per-row error does not fail the batch', async () => {
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const goodBasename = 'openai_codex_good.png';
+    await writeFile(path.join(mount, goodBasename), Buffer.from('gooddata'));
+    // bad: a basename with no corresponding file under the mount.
+    const badBasename = 'openai_codex_bad.png';
+
+    const doc = makeDoc({
+      creativeAssets: [
+        { assetId: 'bad-asset', type: 'generated_image', path: hostImagePath(badBasename) },
+        { assetId: 'good-asset', type: 'generated_image', path: hostImagePath(goodBasename) },
+      ],
+    });
+    const { pool, calls } = makeMockPool(1);
+
+    const result = await ingestProductionCreativeAssetsToDb({
+      jobId: 'mkt_error_test',
+      tenantId: 7,
+      doc,
+      pool,
+    });
+
+    assert.equal(result.total, 2);
+    assert.equal(result.skipped, 1, 'bad row must be skipped');
+    assert.equal(result.inserted, 1, 'good row must be inserted');
+    assert.equal(calls.length, 1, 'Only the good row should reach the DB');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Logo composite at ingest (ARIES_FEED_LOGO_COMPOSITE_ENABLED)
+// ---------------------------------------------------------------------------
+
+async function realPng(
+  width: number,
+  height: number,
+  rgb: { r: number; g: number; b: number },
+): Promise<Buffer> {
+  return sharp({ create: { width, height, channels: 4, background: { ...rgb, alpha: 1 } } })
+    .png()
+    .toBuffer();
+}
+
+const FRAME_BRAND_KIT = {
+  logo_urls: ['/virtual/logo.png'],
+  colors: { primary: '#ff00aa' },
+  logo_file_path: '/virtual/logo.png',
+};
+
+async function withCompositeEnv<T>(dataRoot: string, run: () => Promise<T>): Promise<T> {
+  const prevFlag = process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+  const prevData = process.env.DATA_ROOT;
+  process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = '1';
+  process.env.DATA_ROOT = dataRoot;
+  try {
+    return await run();
+  } finally {
+    if (prevFlag === undefined) delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    else process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = prevFlag;
+    if (prevData === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = prevData;
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+}
+
+test('ingest: frames an eligible feed asset when the flag is on (ingested_asset + framed checksum)', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-frame-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed.png';
+      const raw = await realPng(800, 800, { r: 255, g: 255, b: 255 });
+      await writeFile(path.join(mount, basename), raw);
+      const rawChecksum = crypto.createHash('sha256').update(raw).digest('hex');
+      const logo = await realPng(64, 64, { r: 255, g: 0, b: 255 });
+
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      const result = await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_frame',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => logo,
+      });
+
+      assert.equal(result.inserted, 1);
+      const { sql, params } = calls[0];
+      assert.equal(params[7], 'ingested_asset', 'storage_kind must become ingested_asset when framed');
+      assert.ok(
+        String(params[3]).includes(path.join('ingested-assets', '15')),
+        'storage_key must point under DATA_ROOT/ingested-assets/<tenant>',
+      );
+      assert.notEqual(params[4], rawChecksum, 'checksum must be of the framed bytes, not the raw bytes');
+      assert.equal(params[2], 'img_1', 'source_asset_id stays Hermes-keyed even when framed');
+      assert.ok(sql.includes("'generated_by_aries'"), 'framed row must stay source_type generated_by_aries');
+      assert.ok(
+        sql.includes("'/api/internal/hermes/media/' || g.id::text"),
+        'served_asset_ref must stay the self-referential CTE form',
+      );
+      const framedExists = await stat(String(params[3])).then(() => true).catch(() => false);
+      assert.ok(framedExists, 'framed bytes must be persisted to disk');
+    });
+  });
+});
+
+test('ingest: ineligible placement (story) is NOT framed even with the flag on', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-story-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'story.png';
+      const raw = await realPng(400, 400, { r: 255, g: 255, b: 255 });
+      await writeFile(path.join(mount, basename), raw);
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', placement: 'story', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_story',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => realPng(64, 64, { r: 255, g: 0, b: 255 }),
+      });
+      const { params } = calls[0];
+      assert.equal(params[7], 'runtime_asset', 'story placement must stay runtime_asset (no framing)');
+      assert.equal(params[3], path.join(mount, basename), 'storage_key must stay the raw mount path');
+    });
+  });
+});
+
+test('ingest: flag OFF leaves an eligible asset unframed (raw passthrough) even with a brandKit', async () => {
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const prevFlag = process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    try {
+      const basename = 'feed-off.png';
+      const raw = await realPng(800, 800, { r: 255, g: 255, b: 255 });
+      await writeFile(path.join(mount, basename), raw);
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_off',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => realPng(64, 64, { r: 255, g: 0, b: 255 }),
+      });
+      const { params } = calls[0];
+      assert.equal(params[7], 'runtime_asset', 'flag off must keep runtime_asset');
+      assert.equal(params[3], path.join(mount, basename), 'flag off must keep the raw mount path');
+    } finally {
+      if (prevFlag === undefined) delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+      else process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = prevFlag;
+    }
+  });
+});
+
+test('ingest: framing deletes any pre-existing raw twin (OFF->ON flag flip safety)', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-twin-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed.png';
+      await writeFile(path.join(mount, basename), await realPng(800, 800, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_twin',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => realPng(64, 64, { r: 255, g: 0, b: 255 }),
+      });
+      const del = calls.find((c) => /DELETE FROM creative_assets/i.test(c.sql));
+      assert.ok(del, 'framing must issue a raw-twin DELETE');
+      assert.ok(/storage_kind = 'runtime_asset'/.test(del!.sql), 'DELETE must target only the raw twin');
+      assert.deepEqual(del!.params, [15, 'mkt_twin', 'img_1'], 'DELETE keyed on (tenant, job, source_asset_id)');
+    });
+  });
+});
+
+test('ingest: no raw-twin DELETE is issued when not framing (flag off)', async () => {
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const prevFlag = process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    try {
+      const basename = 'feed.png';
+      await writeFile(path.join(mount, basename), await realPng(400, 400, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_off',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => realPng(64, 64, { r: 255, g: 0, b: 255 }),
+      });
+      assert.ok(!calls.some((c) => /DELETE FROM creative_assets/i.test(c.sql)), 'flag off must not delete anything');
+    } finally {
+      if (prevFlag === undefined) delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+      else process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = prevFlag;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AA-221: the composite skip must be LOUD.
+//
+// Live shape of the bug: ARIES_FEED_LOGO_COMPOSITE_ENABLED=1, brand kit present
+// with logo_urls=['https://.../aries-logo.webp'] but logo_file_path=null. The
+// compositor only accepts a LOCAL file, so it declined, returned the original
+// buffer, and the `framed !== rawBytes` identity check treated that as "nothing
+// to do". A whole week of feed images shipped logo-less with zero log output.
+// ---------------------------------------------------------------------------
+
+/** Capture console.warn for the duration of `run`. */
+async function withCapturedWarn<T>(run: () => Promise<T>): Promise<{ value: T; warns: unknown[][] }> {
+  const original = console.warn;
+  const warns: unknown[][] = [];
+  console.warn = (...args: unknown[]) => {
+    warns.push(args);
+  };
+  try {
+    const value = await run();
+    return { value, warns };
+  } finally {
+    console.warn = original;
+  }
+}
+
+function skipWarns(warns: unknown[][]): Record<string, unknown>[] {
+  return warns
+    .filter((args) => String(args[0]) === '[ingest-production-assets] logo composite skipped')
+    .map((args) => (args[1] ?? {}) as Record<string, unknown>);
+}
+
+test('ingest: flag ON + brand kit with no logo_file_path WARNs with reason logo_file_path_missing', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-nologo-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed-nologo.png';
+      await writeFile(path.join(mount, basename), await realPng(800, 800, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+
+      const { warns } = await withCapturedWarn(async () =>
+        ingestProductionCreativeAssetsToDb({
+          jobId: 'mkt_nologo',
+          tenantId: 15,
+          doc,
+          pool,
+          // The exact live tenant-15 shape: a remote logo URL, no local file.
+          brandKit: { logo_urls: ['https://aries.example/aries-logo.webp'], colors: { primary: '#ff00aa' }, logo_file_path: null },
+        }),
+      );
+
+      const skips = skipWarns(warns);
+      assert.equal(skips.length, 1, 'exactly one skip warn per ingest — not one per asset');
+      assert.equal(skips[0].reason, 'logo_file_path_missing');
+      assert.equal(skips[0].jobId, 'mkt_nologo');
+      assert.equal(skips[0].tenantId, 15);
+
+      // Behavior is unchanged: raw passthrough, no twin delete.
+      const { params } = calls[0];
+      assert.equal(params[7], 'runtime_asset', 'no local logo means no framing — raw bytes stand');
+      assert.equal(params[3], path.join(mount, basename));
+      assert.ok(!calls.some((c) => /DELETE FROM creative_assets/i.test(c.sql)), 'must not delete a raw twin it never replaced');
+    });
+  });
+});
+
+test('ingest: flag ON with no brand kit at all WARNs with reason brand_kit_missing', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-nokit-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed-nokit.png';
+      await writeFile(path.join(mount, basename), await realPng(800, 800, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool } = makeMockPool(1);
+
+      const { warns } = await withCapturedWarn(async () =>
+        ingestProductionCreativeAssetsToDb({ jobId: 'mkt_nokit', tenantId: 15, doc, pool }),
+      );
+
+      const skips = skipWarns(warns);
+      assert.equal(skips.length, 1);
+      assert.equal(skips[0].reason, 'brand_kit_missing');
+    });
+  });
+});
+
+// Noise control: a reel-companion ingest is video-only and can NEVER composite
+// by design. Warning on it every week would train operators to scroll past the
+// line that actually matters.
+test('ingest: a video-only batch emits NO skip warn even with the flag on and no logo', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-videoonly-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'reel.mp4';
+      await writeFile(path.join(mount, basename), Buffer.from('fake-video-bytes'));
+      const doc = makeDoc({
+        creativeAssets: [{ assetId: 'vid_1', type: 'generated_video', media_type: 'video', path: hostImagePath(basename) }],
+      });
+      const { pool } = makeMockPool(1);
+
+      const { warns } = await withCapturedWarn(async () =>
+        ingestProductionCreativeAssetsToDb({
+          jobId: 'mkt_reel',
+          tenantId: 15,
+          doc,
+          pool,
+          brandKit: { logo_urls: ['https://aries.example/aries-logo.webp'], colors: { primary: '#ff00aa' }, logo_file_path: null },
+        }),
+      );
+
+      assert.deepEqual(skipWarns(warns), [], 'video-only ingests must stay quiet');
+    });
+  });
+});
+
+test('ingest: a logo that fails to load WARNs that the composite produced no change', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-deadlogo-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed-deadlogo.png';
+      await writeFile(path.join(mount, basename), await realPng(800, 800, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+
+      const { warns } = await withCapturedWarn(async () =>
+        ingestProductionCreativeAssetsToDb({
+          jobId: 'mkt_deadlogo',
+          tenantId: 15,
+          doc,
+          pool,
+          // logo_file_path IS set (so the pre-loop check is happy) but the bytes
+          // are unreadable at composite time — the file-swept case.
+          brandKit: FRAME_BRAND_KIT,
+          logoLoader: async () => null as unknown as Buffer,
+        }),
+      );
+
+      assert.deepEqual(skipWarns(warns), [], 'the pre-loop check has nothing to complain about here');
+      const noChange = warns.filter(
+        (args) => String(args[0]) === '[ingest-production-assets] logo composite produced no change',
+      );
+      assert.equal(noChange.length, 1, 'the per-asset no-op must be reported');
+      assert.equal((noChange[0][1] as Record<string, unknown>).reason, 'framed_without_logo');
+
+      const { params } = calls[0];
+      assert.equal(params[7], 'runtime_asset', 'an unapplied frame must leave the raw bytes exactly as before');
+      assert.equal(params[3], path.join(mount, basename));
+    });
+  });
+});

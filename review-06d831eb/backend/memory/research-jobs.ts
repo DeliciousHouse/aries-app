@@ -1,0 +1,358 @@
+import { createHash, randomUUID } from 'node:crypto';
+import pool from '@/lib/db';
+import type { TenantContext } from '@/lib/tenant-context';
+import type { CuratorOutcome, ResearchEnvelope } from './types';
+
+export type ResearchJobStatus =
+  | 'pending'
+  | 'submitted'
+  | 'completed'
+  | 'partial'
+  | 'needs_review'
+  | 'failed';
+
+export type ResearchJob = {
+  id: string;
+  tenant_id: string;
+  status: ResearchJobStatus;
+  task_spec: Record<string, unknown>;
+  callback_token_hash: string;
+  hermes_envelope: ResearchEnvelope | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ResearchFinding = {
+  id: string;
+  job_id: string;
+  raw: Record<string, unknown>;
+  curator_decision: string;
+  peer: string | null;
+  approved_message_id: string | null;
+  created_at: string;
+};
+
+type Queryable = {
+  query(sql: string, params: unknown[]): Promise<{ rows: Array<Record<string, unknown>>; rowCount: number | null }>;
+};
+
+export async function ensureResearchJobSchema(client: Queryable = pool): Promise<void> {
+  await client.query('SELECT id FROM aries_research_jobs LIMIT 0', []);
+  await client.query('SELECT id FROM aries_research_findings LIMIT 0', []);
+}
+
+const MARKETING_MEMORY_QUEUE_SEED_VERSION = 'aries-marketing-memory-queue-v1';
+
+/**
+ * Deterministic UUID for a synthetic `aries_research_jobs` row used only to attach
+ * queued marketing-approval memory findings to the tenant review queue.
+ */
+export function marketingMemoryQueueJobUuid(tenantId: string, marketingJobId: string): string {
+  const seed = `${MARKETING_MEMORY_QUEUE_SEED_VERSION}:${tenantId}:${marketingJobId}`;
+  const hash = createHash('sha256').update(seed).digest();
+  const bytes = Uint8Array.from(hash.subarray(0, 16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Buffer.from(bytes).toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+export async function ensureMarketingMemoryQueueJob(
+  tenantId: string,
+  marketingJobId: string,
+  client: Queryable = pool,
+): Promise<string> {
+  await ensureResearchJobSchema(client);
+  const id = marketingMemoryQueueJobUuid(tenantId, marketingJobId);
+  const tokenHash = createHash('sha256').update(`aries:mmq:${id}`).digest('hex');
+  await client.query(
+    `
+    INSERT INTO aries_research_jobs (id, tenant_id, status, task_spec, callback_token_hash, created_at, updated_at)
+    VALUES ($1::uuid, $2, 'completed', $3::jsonb, $4, NOW(), NOW())
+    ON CONFLICT (id) DO NOTHING
+    `,
+    [
+      id,
+      String(tenantId),
+      JSON.stringify({ kind: 'marketing_memory_queue', marketing_job_id: marketingJobId }),
+      tokenHash,
+    ],
+  );
+  return id;
+}
+
+export async function createJob(
+  ctx: Pick<TenantContext, 'tenantId'>,
+  taskSpec: Record<string, unknown>,
+  callbackTokenHash: string,
+  client: Queryable = pool,
+): Promise<ResearchJob> {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  await client.query(
+    `
+    INSERT INTO aries_research_jobs (id, tenant_id, status, task_spec, callback_token_hash, created_at, updated_at)
+    VALUES ($1, $2, 'pending', $3, $4, $5, $5)
+    `,
+    [id, String(ctx.tenantId), JSON.stringify(taskSpec), callbackTokenHash, now],
+  );
+  return {
+    id,
+    tenant_id: String(ctx.tenantId),
+    status: 'pending',
+    task_spec: taskSpec,
+    callback_token_hash: callbackTokenHash,
+    hermes_envelope: null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+export async function recordEnvelope(
+  jobId: string,
+  envelope: ResearchEnvelope,
+  client: Queryable = pool,
+): Promise<void> {
+  await client.query(
+    `
+    UPDATE aries_research_jobs
+    SET hermes_envelope = $1, updated_at = NOW()
+    WHERE id = $2
+    `,
+    [JSON.stringify(envelope), jobId],
+  );
+}
+
+export async function recordFinding(
+  jobId: string,
+  finding: Record<string, unknown>,
+  outcome: CuratorOutcome,
+  approvedMessageId?: string | null,
+  client: Queryable = pool,
+): Promise<void> {
+  const id = randomUUID();
+  const peer = outcome.decision !== 'drop' ? (outcome.peer ?? null) : null;
+  await client.query(
+    `
+    INSERT INTO aries_research_findings (id, job_id, raw, curator_decision, peer, approved_message_id)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    `,
+    [id, jobId, JSON.stringify(finding), outcome.decision, peer, approvedMessageId ?? null],
+  );
+}
+
+export async function setStatus(
+  jobId: string,
+  status: ResearchJobStatus,
+  client: Queryable = pool,
+): Promise<void> {
+  await client.query(
+    `
+    UPDATE aries_research_jobs
+    SET status = $1, updated_at = NOW()
+    WHERE id = $2
+    `,
+    [status, jobId],
+  );
+}
+
+export async function getJob(
+  ctx: Pick<TenantContext, 'tenantId'>,
+  jobId: string,
+  client: Queryable = pool,
+): Promise<ResearchJob | null> {
+  const result = await client.query(
+    `
+    SELECT id, tenant_id, status, task_spec, callback_token_hash, hermes_envelope, created_at, updated_at
+    FROM aries_research_jobs
+    WHERE id = $1 AND tenant_id = $2
+    LIMIT 1
+    `,
+    [jobId, String(ctx.tenantId)],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return rowToJob(row);
+}
+
+export type ResearchFindingRow = {
+  id: string;
+  job_id: string;
+  raw: Record<string, unknown>;
+  curator_decision: string;
+  peer: string | null;
+  approved_message_id: string | null;
+  created_at: string;
+  job_status: ResearchJobStatus | null;
+};
+
+export async function listQueuedResearchFindingsForTenant(
+  tenantId: string,
+  options: { limit?: number } = {},
+  client: Queryable = pool,
+): Promise<ResearchFindingRow[]> {
+  const rawLimit = options.limit ?? 50;
+  const finiteLimit = Number.isFinite(rawLimit) ? rawLimit : 50;
+  const limit = Math.floor(Math.min(Math.max(finiteLimit, 1), 200));
+  const result = await client.query(
+    `
+    SELECT
+      f.id,
+      f.job_id,
+      f.raw,
+      f.curator_decision,
+      f.peer,
+      f.approved_message_id,
+      f.created_at,
+      j.status AS job_status
+    FROM aries_research_findings f
+    INNER JOIN aries_research_jobs j ON j.id = f.job_id
+    WHERE j.tenant_id = $1
+      AND f.curator_decision = 'queue_for_review'
+    ORDER BY f.created_at DESC
+    LIMIT $2
+    `,
+    [String(tenantId), limit],
+  );
+
+  return result.rows.map((row: Record<string, unknown>) => ({
+    id: String(row.id),
+    job_id: String(row.job_id),
+    raw: (row.raw ?? {}) as Record<string, unknown>,
+    curator_decision: String(row.curator_decision),
+    peer: row.peer == null ? null : String(row.peer),
+    approved_message_id: row.approved_message_id == null ? null : String(row.approved_message_id),
+    created_at: String(row.created_at),
+    job_status: (row.job_status == null ? null : String(row.job_status)) as ResearchJobStatus | null,
+  }));
+}
+
+/**
+ * S6-5 / AA-118 — the terminal decisions a HUMAN can put on a queued finding.
+ *
+ * Deliberately `rejected`, not `dropped`: the curator's own vocabulary already
+ * contains `drop` (an automatic quality/safety rejection at write time), and two
+ * near-identical values would make "who rejected this, and why" unanswerable
+ * from the column alone.
+ */
+export const TERMINAL_CURATOR_DECISIONS = ['approved', 'rejected'] as const;
+export type TerminalCuratorDecision = (typeof TERMINAL_CURATOR_DECISIONS)[number];
+
+export function isTerminalCuratorDecision(value: string): value is TerminalCuratorDecision {
+  return (TERMINAL_CURATOR_DECISIONS as readonly string[]).includes(value);
+}
+
+export type TenantResearchFinding = ResearchFinding & {
+  /** `aries_research_jobs.tenant_id` — TEXT, hence the coercion at every call site. */
+  tenant_id: string;
+  /** `task_spec` of the owning job; carries `marketing_job_id` for queued marketing findings. */
+  job_task_spec: Record<string, unknown>;
+};
+
+/**
+ * Load ONE finding, scoped to the tenant that owns its job.
+ *
+ * The tenant filter lives in the SQL rather than being checked after the read:
+ * a finding belonging to another tenant must be indistinguishable from one that
+ * does not exist, so the caller can 404 without confirming its existence.
+ *
+ * `aries_research_jobs.tenant_id` is TEXT while session tenant ids are numeric,
+ * so the caller's id is coerced here — the same coercion the write path does.
+ */
+export async function getResearchFindingForTenant(
+  findingId: string,
+  tenantId: string | number,
+  client: Queryable = pool,
+): Promise<TenantResearchFinding | null> {
+  const result = await client.query(
+    `
+    SELECT
+      f.id,
+      f.job_id,
+      f.raw,
+      f.curator_decision,
+      f.peer,
+      f.approved_message_id,
+      f.created_at,
+      j.tenant_id,
+      j.task_spec
+    FROM aries_research_findings f
+    INNER JOIN aries_research_jobs j ON j.id = f.job_id
+    WHERE f.id = $1::uuid
+      AND j.tenant_id = $2
+    LIMIT 1
+    `,
+    [findingId, String(tenantId)],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    job_id: String(row.job_id),
+    raw: (row.raw ?? {}) as Record<string, unknown>,
+    curator_decision: String(row.curator_decision),
+    peer: row.peer == null ? null : String(row.peer),
+    approved_message_id: row.approved_message_id == null ? null : String(row.approved_message_id),
+    created_at: String(row.created_at),
+    tenant_id: String(row.tenant_id),
+    job_task_spec: (row.task_spec ?? {}) as Record<string, unknown>,
+  };
+}
+
+/**
+ * Flip a finding to a terminal decision.
+ *
+ * Guarded on `curator_decision = 'queue_for_review'` IN THE STATEMENT, so a
+ * concurrent double-approve settles in the database rather than in application
+ * code: the second UPDATE matches no row and reports 0. Returns whether this
+ * call was the one that transitioned it.
+ */
+export async function setFindingCuratorDecision(
+  findingId: string,
+  decision: TerminalCuratorDecision,
+  approvedMessageId: string | null,
+  client: Queryable = pool,
+): Promise<boolean> {
+  const result = await client.query(
+    `
+    UPDATE aries_research_findings
+       SET curator_decision = $2,
+           approved_message_id = COALESCE($3, approved_message_id)
+     WHERE id = $1::uuid
+       AND curator_decision = 'queue_for_review'
+    `,
+    [findingId, decision, approvedMessageId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function getJobById(
+  jobId: string,
+  client: Queryable = pool,
+): Promise<ResearchJob | null> {
+  const result = await client.query(
+    `
+    SELECT id, tenant_id, status, task_spec, callback_token_hash, hermes_envelope, created_at, updated_at
+    FROM aries_research_jobs
+    WHERE id = $1
+    LIMIT 1
+    `,
+    [jobId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return rowToJob(row);
+}
+
+function rowToJob(row: Record<string, unknown>): ResearchJob {
+  return {
+    id: String(row.id),
+    tenant_id: String(row.tenant_id),
+    status: String(row.status) as ResearchJobStatus,
+    task_spec: (row.task_spec ?? {}) as Record<string, unknown>,
+    callback_token_hash: String(row.callback_token_hash),
+    hermes_envelope: row.hermes_envelope as ResearchEnvelope | null,
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at),
+  };
+}

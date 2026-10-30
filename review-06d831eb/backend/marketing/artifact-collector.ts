@@ -1,0 +1,885 @@
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import {
+  asRecord,
+  asString,
+  asStringArray,
+  type MarketingStage,
+  type MarketingStageArtifact,
+  type MarketingVideoStageArtifact,
+  type MarketingStageSummary,
+} from './runtime-state';
+import type { MarketingJobFacts } from './job-facts';
+import { resolvePublishReviewBundle } from './publish-review';
+import {
+  ARTIFACT_UNAVAILABLE_TEXT,
+  normalizeArtifactText,
+  readLandingPageArtifactDetails,
+  readScriptArtifactDetails,
+} from './real-artifacts';
+import { inferMarketingStageRunId, readMarketingStageStepPayload } from './stage-artifact-resolution';
+import type { SocialContentJobRuntimeDocument } from './runtime-state';
+import { loadValidatedMarketingProfileDocs } from './validated-profile-store';
+import { recordMatchesCurrentSource, sourceFingerprintFromRecord } from './brand-identity';
+
+type StageCapture = {
+  runId: string | null;
+  summary: MarketingStageSummary | null;
+  outputs: Record<string, unknown>;
+  artifacts: MarketingStageArtifact[];
+};
+
+function cacheRoot(envKey: string, fallbackFolder: string): string {
+  return process.env[envKey]?.trim() || path.join(tmpdir(), fallbackFolder);
+}
+
+/**
+ * Rejects anything that is not a single safe filesystem component.
+ *
+ * `runId` and `stepName` are Hermes-controlled and are interpolated straight
+ * into a cache read path, so a value carrying a separator or `..` would escape
+ * the per-tenant directory and defeat the tenant scoping that the `tenantId`
+ * check below exists to enforce.
+ */
+function assertSafePathComponent(label: string, value: string): void {
+  if (
+    !value
+    || value === '.'
+    || value === '..'
+    || value.includes('/')
+    || value.includes('\\')
+    || value.includes('\0')
+    || path.isAbsolute(value)
+  ) {
+    throw new Error(`stepPayloadPath received an unsafe ${label} component`);
+  }
+}
+
+function stepPayloadPath(
+  stage: 1 | 2 | 3 | 4,
+  runId: string,
+  stepName: string,
+  tenantId: string,
+): string {
+  if (!tenantId) {
+    // Fail closed: callers that lost the tenant context must not surface a
+    // shared-root cache path.
+    throw new Error(`stepPayloadPath requires a non-empty tenantId (stage=${stage}, run=${runId})`);
+  }
+  assertSafePathComponent('tenantId', tenantId);
+  assertSafePathComponent('runId', runId);
+  assertSafePathComponent('stepName', stepName);
+  const root =
+    stage === 1
+      ? cacheRoot('ARTIFACT_STAGE1_CACHE_DIR', 'hermes-stage1-cache')
+      : stage === 2
+        ? cacheRoot('ARTIFACT_STAGE2_CACHE_DIR', 'hermes-stage2-cache')
+        : stage === 3
+          ? cacheRoot('ARTIFACT_STAGE3_CACHE_DIR', 'hermes-stage3-cache')
+          : cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'hermes-stage4-cache');
+  return path.join(root, tenantId, runId, `${stepName}.json`);
+}
+
+async function readJsonIfExists(filePath: string): Promise<Record<string, unknown> | null> {
+  try {
+    const raw = await readFile(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
+    return null;
+  }
+}
+
+function stringValue(value: unknown, fallback = ''): string {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return fallback;
+}
+
+function currentSourceUrl(runtimeDoc: SocialContentJobRuntimeDocument | null | undefined): string | null {
+  if (!runtimeDoc) {
+    return null;
+  }
+
+  return (
+    asString(asRecord(runtimeDoc.inputs.request)?.websiteUrl) ||
+    asString(asRecord(runtimeDoc.inputs.request)?.brandUrl) ||
+    asString(runtimeDoc.inputs.brand_url) ||
+    null
+  );
+}
+
+function sourceMatchedRecord(
+  value: Record<string, unknown> | null,
+  sourceUrl: string | null,
+): Record<string, unknown> | null {
+  return recordMatchesCurrentSource(value, sourceUrl) ? value : null;
+}
+
+function strategyPayloadMatchesCurrentSource(
+  value: Record<string, unknown> | null,
+  sourceUrl: string | null,
+  runSourceEvidence: Record<string, unknown> | null,
+  hasRunSourceCandidate: boolean,
+): boolean {
+  if (!value) {
+    return false;
+  }
+  if (!recordMatchesCurrentSource(value, sourceUrl)) {
+    return false;
+  }
+  if (!sourceUrl) {
+    return true;
+  }
+  if (sourceFingerprintFromRecord(value) || runSourceEvidence) {
+    return true;
+  }
+  return !hasRunSourceCandidate;
+}
+
+function artifact(input: Omit<MarketingStageArtifact, 'details'> & { details?: string[] }): MarketingStageArtifact {
+  return {
+    ...input,
+    details: input.details ?? [],
+  };
+}
+
+function videoArtifact(input: MarketingVideoStageArtifact): MarketingVideoStageArtifact {
+  return input;
+}
+
+function asRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && !Array.isArray(entry))
+    : [];
+}
+
+function detailLines(label: string, values: Array<string | null | undefined>, maxItems = 3): string[] {
+  const cleaned = values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0).slice(0, maxItems);
+  return cleaned.length > 0 ? [`${label}: ${cleaned.join(' • ')}`] : [];
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function titleCaseSlug(value: string): string {
+  return value
+    .split(/[-_]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function familyTitle(value: string): string {
+  if (/^family[-_\s]/i.test(value)) {
+    return value
+      .split(/[-_\s]+/g)
+      .map((part) => (part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join(' ');
+  }
+
+  return `Family ${value.length === 1 ? value.toUpperCase() : titleCaseSlug(value)}`;
+}
+
+type LocalVideoAsset = {
+  id: string;
+  url: string;
+};
+
+function localVideoAsset(jobId: string, value: unknown): LocalVideoAsset | null {
+  const raw = stringValue(value);
+  const basePath = `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/`;
+  if (!raw.startsWith(basePath)) return null;
+  const assetId = raw.slice(basePath.length);
+  return assetId.length <= 200 && /^video-[a-z0-9][a-z0-9_-]*$/i.test(assetId)
+    ? { id: assetId, url: raw }
+    : null;
+}
+
+function collectCanonicalVideoArtifacts(params: {
+  jobId: string | null;
+  primaryOutput: Record<string, unknown> | null;
+}): MarketingVideoStageArtifact[] {
+  const { jobId, primaryOutput } = params;
+  if (!jobId || !primaryOutput) return [];
+
+  const artifacts = new Map<string, MarketingVideoStageArtifact>();
+  for (const candidate of asRecordArray(primaryOutput.artifacts)) {
+    const mimeType = stringValue(candidate.mime_type || candidate.mimeType).toLowerCase();
+    const status = stringValue(candidate.status).toLowerCase();
+    const localAsset = localVideoAsset(jobId, candidate.url);
+    if (
+      mimeType !== 'video/mp4'
+      || !localAsset
+      || status === 'skipped'
+      || status === 'failed'
+      || status === 'rejected'
+    ) {
+      continue;
+    }
+
+    const platformSlug =
+      stringValue(candidate.platform_slug) ||
+      stringValue(candidate.canonical_platform_slug) ||
+      'social';
+    const familyId = stringValue(candidate.family_id) || stringValue(candidate.family_name) || 'render';
+    const platformTitle = stringValue(candidate.platform) || titleCaseSlug(platformSlug);
+    const familyDisplay = stringValue(candidate.family_name) || familyTitle(familyId);
+    const durationSeconds = numberValue(candidate.duration_seconds) ?? 0;
+    const aspectRatio = stringValue(candidate.aspect_ratio) || 'unknown';
+    const posterAsset = localVideoAsset(jobId, candidate.poster_url);
+
+    artifacts.set(localAsset.id, videoArtifact({
+      id: localAsset.id,
+      stage: 'production',
+      type: 'video',
+      title: stringValue(candidate.title) || `${platformTitle} — ${familyDisplay}`,
+      category: 'video',
+      status: 'completed',
+      summary:
+        stringValue(candidate.summary) ||
+        `${platformTitle} render for ${familyDisplay} (${aspectRatio}, ${durationSeconds}s).`,
+      details: [],
+      contentType: 'video/mp4',
+      url: localAsset.url,
+      posterUrl: posterAsset?.url ?? `${localAsset.url}-poster`,
+      platformSlug,
+      familyId,
+      durationSeconds,
+      aspectRatio,
+    }));
+  }
+  return [...artifacts.values()];
+}
+
+function collectRenderedVideoArtifacts(params: {
+  jobId: string | null;
+  videoPayload: Record<string, unknown> | null;
+}): MarketingVideoStageArtifact[] {
+  const { jobId, videoPayload } = params;
+  if (!jobId || !videoPayload) {
+    return [];
+  }
+
+  const videoAssets = asRecord(videoPayload.video_assets) ?? {};
+  return asRecordArray(videoAssets.platform_contracts).flatMap((contract) => {
+    const platformSlug =
+      stringValue(contract.platform_slug) ||
+      stringValue(contract.canonical_platform_slug);
+    if (!platformSlug) {
+      return [];
+    }
+
+    const platformTitle =
+      stringValue(contract.platform) ||
+      stringValue(contract.platform_name) ||
+      titleCaseSlug(platformSlug);
+    const platformRequirements = asRecord(contract.platform_requirements) ?? {};
+    const renderStatus = stringValue(contract.render_status);
+    if (renderStatus && renderStatus !== 'rendered') {
+      return [];
+    }
+
+    return asRecordArray(contract.rendered_video_variants).flatMap((variant) => {
+      const familyId = stringValue(variant.family_id);
+      if (!familyId) {
+        return [];
+      }
+
+      const artifactId = `video-${platformSlug}-${familyId}`;
+      const durationSeconds =
+        numberValue(variant.duration_seconds) ??
+        numberValue(platformRequirements.target_duration_seconds) ??
+        0;
+      const aspectRatio =
+        stringValue(variant.aspect_ratio) ||
+        stringValue(contract.aspect_ratio) ||
+        stringValue(platformRequirements.aspect_ratio) ||
+        'unknown';
+      const familyDisplay =
+        stringValue(variant.family_name) ||
+        stringValue(contract.family_name) ||
+        familyTitle(familyId);
+      const ingestedVideoAsset = localVideoAsset(jobId, variant.video_url);
+      const ingestedPosterAsset = localVideoAsset(jobId, variant.poster_url);
+      const fallbackUrl = `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${artifactId}`;
+      const fallbackPosterUrl = `${fallbackUrl}-poster`;
+
+      return [
+        videoArtifact({
+          id: ingestedVideoAsset?.id ?? artifactId,
+          stage: 'production',
+          type: 'video',
+          title: `${platformTitle} — ${familyDisplay}`,
+          category: 'video',
+          status: 'completed',
+          summary: `${platformTitle} render for ${familyDisplay} (${aspectRatio}, ${durationSeconds}s).`,
+          details: [],
+          contentType: 'video/mp4',
+          url: ingestedVideoAsset?.url ?? fallbackUrl,
+          posterUrl: ingestedPosterAsset?.url ?? fallbackPosterUrl,
+          platformSlug,
+          familyId,
+          durationSeconds,
+          aspectRatio,
+        }),
+      ];
+    });
+  });
+}
+
+async function resolveRunId(
+  primaryOutput: Record<string, unknown> | null,
+  runtimeDoc?: SocialContentJobRuntimeDocument | null,
+  stage?: 1 | 2 | 3 | 4,
+): Promise<string | null> {
+  return asString(primaryOutput?.run_id) || (runtimeDoc && stage ? await inferMarketingStageRunId(runtimeDoc, stage) : null);
+}
+
+export async function collectResearchStageArtifacts(
+  facts: MarketingJobFacts,
+  primaryOutput: Record<string, unknown> | null,
+): Promise<StageCapture> {
+  const runId = (await resolveRunId(primaryOutput, facts.runtimeDoc, 1)) || facts.runId;
+  const tenantId = stringValue(facts.runtimeDoc?.tenant_id);
+  const compilePath = runId && tenantId ? stepPayloadPath(1, runId, 'ads_analyst_compile', tenantId) : '';
+  const extractorPath = runId && tenantId ? stepPayloadPath(1, runId, 'meta_ads_extractor', tenantId) : '';
+  const [compile, extractor] = await Promise.all([
+    facts.stagePayload('research', 'ads_analyst_compile'),
+    facts.stagePayload('research', 'meta_ads_extractor'),
+  ]);
+  const executive = asRecord(compile?.executive_summary) ?? {};
+  // Only treat the competitor as real if the upstream produced a non-generic value.
+  // ads-analyst defaults to the literal string "competitor" when no brand was set,
+  // which previously surfaced as "Competitor: Competitor" in the UI.
+  const competitorRaw = stringValue(compile?.competitor || extractor?.competitor);
+  const hasRealCompetitor = !!competitorRaw && competitorRaw.toLowerCase() !== 'competitor';
+  const adsSeenRaw = stringValue(asRecord(compile?.inputs)?.ads_seen);
+  const summary: MarketingStageSummary | null = {
+    summary:
+      stringValue(executive.market_positioning) ||
+      'Competitive research completed and the highest-signal social content angles were captured.',
+    highlight: stringValue(executive.campaign_takeaway) || null,
+  };
+
+  return {
+    runId,
+    summary,
+    outputs: {
+      compile_path: compilePath || null,
+      extractor_path: extractorPath || null,
+      compile,
+      extractor,
+    },
+    artifacts: [
+      artifact({
+        id: 'research-summary',
+        stage: 'research',
+        title: hasRealCompetitor ? `${competitorRaw} research summary` : 'Competitor research summary',
+        category: 'analysis',
+        status: 'completed',
+        summary: summary.summary,
+        details: [
+          hasRealCompetitor ? `Competitor: ${competitorRaw}` : null,
+          adsSeenRaw && adsSeenRaw !== '0' ? `Ads reviewed: ${adsSeenRaw}` : null,
+          stringValue(executive.creative_takeaway),
+        ].filter((entry): entry is string => !!entry),
+        path: compilePath || null,
+        preview_path: null,
+      }),
+    ],
+  };
+}
+
+export async function collectStrategyReviewArtifacts(
+  facts: MarketingJobFacts,
+  primaryOutput: Record<string, unknown> | null,
+): Promise<StageCapture> {
+  const runtimeDoc = facts.runtimeDoc;
+  const sourceUrl = currentSourceUrl(runtimeDoc);
+  const validatedDocs = runtimeDoc ? await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
+    currentSourceUrl: sourceUrl,
+  }) : null;
+  const [websiteStep, plannerStep, plannerStepLegacy, reviewStep] = await Promise.all([
+    facts.stagePayload('strategy', 'website_brand_analysis'),
+    facts.stagePayload('strategy', 'social_content_planner'),
+    facts.stagePayload('strategy', 'campaign_planner'), // legacy compat: read old step name for in-flight runs
+    facts.stagePayload('strategy', 'strategy_review_preview'),
+  ]);
+  const runId = (await resolveRunId(primaryOutput, runtimeDoc, 2)) || facts.runId || null;
+  const tenantId = stringValue(runtimeDoc?.tenant_id);
+  const websitePath =
+    stringValue(asRecord(primaryOutput)?.validated_website_analysis_path) ||
+    validatedDocs?.paths.websiteAnalysis ||
+    (runId && tenantId ? stepPayloadPath(2, runId, 'website_brand_analysis', tenantId) : '');
+  const brandProfilePath =
+    stringValue(asRecord(primaryOutput)?.validated_brand_profile_path) ||
+    validatedDocs?.paths.brandProfile ||
+    null;
+  const plannerPath = runId && tenantId ? stepPayloadPath(2, runId, 'social_content_planner', tenantId) : '';
+  const plannerPathLegacy = runId && tenantId ? stepPayloadPath(2, runId, 'campaign_planner', tenantId) : '';
+  const reviewPath = runId && tenantId ? stepPayloadPath(2, runId, 'strategy_review_preview', tenantId) : '';
+  const rawRunWebsite = websiteStep || (websitePath ? await facts.jsonAtPath(websitePath) : null);
+  const runWebsite = sourceMatchedRecord(
+    rawRunWebsite,
+    sourceUrl,
+  );
+  const website = runWebsite || validatedDocs?.websiteAnalysis || null;
+  const brandProfile = sourceMatchedRecord(
+    validatedDocs?.brandProfile || (brandProfilePath ? await facts.jsonAtPath(brandProfilePath) : null),
+    sourceUrl,
+  );
+  const plannerCandidate = plannerStep || plannerStepLegacy
+    || (plannerPath ? await facts.jsonAtPath(plannerPath) : null)
+    || (plannerPathLegacy ? await facts.jsonAtPath(plannerPathLegacy) : null); // legacy path fallback
+  const reviewCandidate = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
+  const planner = strategyPayloadMatchesCurrentSource(plannerCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? plannerCandidate : null;
+  const review = strategyPayloadMatchesCurrentSource(reviewCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? reviewCandidate : null;
+  const brandAnalysis = asRecord(website?.brand_analysis) ?? {};
+  const plan = asRecord(planner?.campaign_plan) ?? {};
+  const reviewPacket = asRecord(review?.review_packet) ?? {};
+  const summary: MarketingStageSummary | null = {
+    summary:
+      stringValue(plan.core_message) ||
+      stringValue(brandAnalysis.brand_promise) ||
+      'Campaign strategy and channel plans are ready for human review.',
+    highlight:
+      stringValue(plan.primary_cta) ||
+      stringValue(reviewPacket.objective) ||
+      null,
+  };
+
+  return {
+    runId,
+    summary,
+    outputs: {
+      website_brand_analysis_path: websitePath || null,
+      validated_website_analysis_path: websitePath || null,
+      validated_brand_profile_path: brandProfilePath,
+      social_content_planner_path: plannerPath || null,
+      campaign_planner_path: plannerPath || null, // legacy alias: keep until all readers migrate
+      strategy_review_path: reviewPath || null,
+      website,
+      brand_profile: brandProfile,
+      planner,
+      review,
+    },
+    artifacts: [
+      artifact({
+        id: 'strategy-plan',
+        stage: 'strategy',
+        title: 'Social content strategy',
+        category: 'brief',
+        status: 'awaiting_approval',
+        summary: summary.summary,
+        details: [
+          stringValue(brandAnalysis.audience_summary),
+          `Offer: ${normalizeArtifactText(stringValue(brandAnalysis.offer_summary || plan.offer)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Primary CTA: ${normalizeArtifactText(stringValue(plan.primary_cta)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+        ].filter(Boolean),
+        path: plannerPath || null,
+      }),
+      artifact({
+        id: 'strategy-review',
+        stage: 'strategy',
+        title: 'Strategy approval checkpoint',
+        category: 'approval',
+        status: 'awaiting_approval',
+        summary: 'Strategy review is waiting on explicit approval before production can begin.',
+        details: asStringArray(reviewPacket.channels_in_scope).length > 0
+          ? [`Channels in scope: ${asStringArray(reviewPacket.channels_in_scope).join(', ')}`]
+          : [],
+        path: reviewPath || null,
+      }),
+    ],
+  };
+}
+
+export async function collectStrategyFinalizeArtifacts(primaryOutput: Record<string, unknown> | null): Promise<StageCapture> {
+  const runId = await resolveRunId(primaryOutput);
+  const handoff = asRecord(primaryOutput?.strategy_handoff) ?? {};
+  return {
+    runId,
+    summary: {
+      summary:
+        stringValue(handoff.core_message) ||
+        'Strategy handoff was finalized for production.',
+      highlight: stringValue(handoff.primary_cta) || null,
+    },
+    outputs: {
+      strategy_handoff: handoff,
+    },
+    artifacts: [],
+  };
+}
+
+export async function collectProductionReviewArtifacts(
+  facts: MarketingJobFacts,
+  primaryOutput: Record<string, unknown> | null,
+): Promise<StageCapture> {
+  const runtimeDoc = facts.runtimeDoc;
+  const predecessorVideoStepName = `${['v', 'eo'].join('')}_video_generator`;
+  const [reviewStep, videoStep, predecessorVideoStep] = await Promise.all([
+    facts.stagePayload('production', 'production_review_preview'),
+    facts.stagePayload('production', 'video_render_runtime'),
+    facts.stagePayload('production', predecessorVideoStepName),
+  ]);
+  const runId = (await resolveRunId(primaryOutput, runtimeDoc, 3)) || facts.runId || null;
+  const tenantId = stringValue(runtimeDoc?.tenant_id);
+  const reviewPath = runId && tenantId ? stepPayloadPath(3, runId, 'production_review_preview', tenantId) : '';
+  const finalizePath = runId && tenantId ? stepPayloadPath(3, runId, 'creative_director_finalize', tenantId) : '';
+  const replacementVideoPath = runId && tenantId ? stepPayloadPath(3, runId, 'video_render_runtime', tenantId) : '';
+  const predecessorVideoPath = runId && tenantId ? stepPayloadPath(3, runId, predecessorVideoStepName, tenantId) : '';
+  const review = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
+  const replacementVideo = videoStep || (replacementVideoPath ? await facts.jsonAtPath(replacementVideoPath) : null);
+  const predecessorVideo = replacementVideo
+    ? null
+    : predecessorVideoStep || (predecessorVideoPath ? await facts.jsonAtPath(predecessorVideoPath) : null);
+  const video = replacementVideo || predecessorVideo;
+  const videoPath = replacementVideo
+    ? replacementVideoPath
+    : predecessorVideo
+      ? predecessorVideoPath
+      : replacementVideoPath;
+  const jobId = runtimeDoc?.job_id || stringValue(primaryOutput?.job_id) || null;
+  const packet = asRecord(review?.review_packet) ?? {};
+  const summaryBlock = asRecord(packet.summary) ?? {};
+  const previews = asRecord(packet.asset_previews) ?? {};
+  const landingDetails = await readLandingPageArtifactDetails({ runtimeDoc });
+  const scriptDetails = await readScriptArtifactDetails({ runtimeDoc });
+  const videoAssets = asRecord(video?.video_assets) ?? {};
+  const canonicalVideoArtifacts = collectCanonicalVideoArtifacts({ jobId, primaryOutput });
+  const renderedVideoArtifacts = canonicalVideoArtifacts.length > 0
+    ? canonicalVideoArtifacts
+    : collectRenderedVideoArtifacts({ jobId, videoPayload: video });
+  const summary: MarketingStageSummary | null = {
+    summary:
+      stringValue(summaryBlock.core_message) ||
+      'Production assets and contracts are ready for review.',
+    highlight:
+      normalizeArtifactText(landingDetails.headline) ||
+      normalizeArtifactText(stringValue(previews.landing_page_headline)) ||
+      null,
+  };
+
+  return {
+    runId,
+    summary,
+    outputs: {
+      production_review_path: reviewPath || null,
+      production_finalize_path: finalizePath || null,
+      video_generator_path: canonicalVideoArtifacts.length > 0 ? null : videoPath || null,
+      review,
+      video: canonicalVideoArtifacts.length > 0 ? primaryOutput : video,
+    },
+    artifacts: [
+      artifact({
+        id: 'production-review',
+        stage: 'production',
+        title: 'Production review packet',
+        category: 'review',
+        status: 'awaiting_approval',
+        summary: summary.summary,
+        details: [
+          `Landing page headline: ${landingDetails.headline || normalizeArtifactText(stringValue(previews.landing_page_headline)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Ad hook: ${scriptDetails.metaAdHook || normalizeArtifactText(stringValue(previews.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Video opening line: ${scriptDetails.shortVideoOpeningLine || normalizeArtifactText(stringValue(previews.video_opening_line)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+        ],
+        path: reviewPath || null,
+        preview_path: asString(asRecord(review?.artifacts)?.preview_path),
+      }),
+      ...renderedVideoArtifacts,
+    ],
+  };
+}
+
+export async function collectProductionFinalizeArtifacts(primaryOutput: Record<string, unknown> | null): Promise<StageCapture> {
+  const runId = await resolveRunId(primaryOutput);
+  const handoff = asRecord(primaryOutput?.production_handoff) ?? {};
+  const contractHandoffs = asRecord(handoff.contract_handoffs) ?? {};
+  const staticHandoff = asRecord(contractHandoffs.static) ?? {};
+  const videoHandoff = asRecord(contractHandoffs.video) ?? {};
+  return {
+    runId,
+    summary: {
+      summary:
+        stringValue(asRecord(handoff.production_brief)?.core_message) ||
+        'Production handoff was finalized for publishing.',
+      highlight: `Static contracts: ${stringValue(staticHandoff.platform_index_path ? (asStringArray(staticHandoff.platform_contract_paths).length || 0) : 0)}, Video contracts: ${stringValue(asStringArray(videoHandoff.platform_contract_paths).length || 0)}`,
+    },
+    outputs: {
+      production_handoff: handoff,
+    },
+    artifacts: [],
+  };
+}
+
+export async function collectPublishReviewArtifacts(
+  primaryOutput: Record<string, unknown> | null,
+  runtimeDoc?: SocialContentJobRuntimeDocument | null,
+): Promise<StageCapture> {
+  const preflightStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 4, 'performance_marketer_preflight') : null;
+  const reviewStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 4, 'launch_review_preview') : null;
+  const runId =
+    await resolveRunId(primaryOutput, runtimeDoc, 4) ||
+    preflightStep?.runId ||
+    reviewStep?.runId ||
+    null;
+  const tenantId = stringValue(runtimeDoc?.tenant_id);
+  const preflightPath = preflightStep?.path || (runId && tenantId ? stepPayloadPath(4, runId, 'performance_marketer_preflight', tenantId) : '');
+  const reviewPath = reviewStep?.path || (runId && tenantId ? stepPayloadPath(4, runId, 'launch_review_preview', tenantId) : '');
+  const preflight = preflightStep?.payload || (preflightPath ? await readJsonIfExists(preflightPath) : null);
+  const resolvedPublishReview = runtimeDoc ? await resolvePublishReviewBundle(runtimeDoc) : { reviewPayload: null, reviewBundle: null };
+  // In docker setups, the step cache lives on the gateway host (a different
+  // filesystem) so reviewStep/reviewPath both come back null. Fall back to the
+  // primaryOutput passed in by the orchestrator — that's the launch_review_preview
+  // payload forwarded through the approval bridge as `requiresApproval.items[0]`.
+  const review =
+    resolvedPublishReview.reviewPayload ||
+    reviewStep?.payload ||
+    (reviewPath ? await readJsonIfExists(reviewPath) : null) ||
+    (primaryOutput && stringValue((primaryOutput as Record<string, unknown>).type) === 'launch_review_preview'
+      ? (primaryOutput as Record<string, unknown>)
+      : null);
+  const publishPlan = asRecord(preflight?.publish_plan) ?? {};
+  const approvalPreview = asRecord(review?.approval_preview) ?? asRecord(primaryOutput?.approval_preview) ?? {};
+  const reviewBundle = resolvedPublishReview.reviewBundle ?? asRecord(review?.review_bundle) ?? asRecord(primaryOutput?.review_bundle) ?? {};
+  const reviewSummary = asRecord(reviewBundle.summary) ?? {};
+  const landingPagePreview = asRecord(reviewBundle.landing_page_preview) ?? {};
+  const scriptPreview = asRecord(reviewBundle.script_preview) ?? {};
+  const platformPreviews = asRecordArray(reviewBundle.platform_previews);
+  const landingDetails = await readLandingPageArtifactDetails({
+    path: stringValue(landingPagePreview.landing_page_path) || null,
+    runtimeDoc: runtimeDoc || null,
+  });
+  const scriptDetails = await readScriptArtifactDetails({
+    metaScriptPath: stringValue(scriptPreview.meta_script_path) || null,
+    shortVideoScriptPath: stringValue(scriptPreview.short_video_script_path) || null,
+    runtimeDoc: runtimeDoc || null,
+  });
+  const message =
+    stringValue(approvalPreview.message) ||
+    ARTIFACT_UNAVAILABLE_TEXT;
+  const reviewArtifacts: MarketingStageArtifact[] = [];
+
+  if (Object.keys(landingPagePreview).length > 0) {
+    reviewArtifacts.push(
+      artifact({
+        id: 'launch-review-landing-page',
+        stage: 'publish',
+        title: 'Landing page preview',
+        category: 'review',
+        status: 'awaiting_approval',
+        summary:
+          landingDetails.headline ||
+          normalizeArtifactText(stringValue(landingPagePreview.headline)) ||
+          ARTIFACT_UNAVAILABLE_TEXT,
+        details: [
+          `CTA: ${landingDetails.cta || normalizeArtifactText(stringValue(landingPagePreview.cta)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Slug: ${normalizeArtifactText(landingDetails.slug || stringValue(landingPagePreview.slug)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          ...detailLines('Sections', landingDetails.sections.length > 0 ? landingDetails.sections : (Array.isArray(landingPagePreview.sections) ? landingPagePreview.sections.map((entry) => stringValue(entry)) : [])),
+          ...detailLines(
+            'Message match checks',
+            Array.isArray(landingPagePreview.message_match_checks) ? landingPagePreview.message_match_checks.map((entry) => stringValue(entry)) : [],
+            2
+          ),
+        ],
+        path: stringValue(landingPagePreview.landing_page_path) || null,
+        preview_path: stringValue(landingPagePreview.preview_path) || null,
+      })
+    );
+  }
+
+  if (Object.keys(scriptPreview).length > 0) {
+    reviewArtifacts.push(
+      artifact({
+        id: 'launch-review-scripts',
+        stage: 'publish',
+        title: 'Draft copy and scripts',
+        category: 'review',
+        status: 'awaiting_approval',
+        summary:
+          scriptDetails.metaAdHook ||
+          scriptDetails.shortVideoOpeningLine ||
+          normalizeArtifactText(stringValue(scriptPreview.meta_ad_hook)) ||
+          normalizeArtifactText(stringValue(scriptPreview.short_video_opening_line)) ||
+          ARTIFACT_UNAVAILABLE_TEXT,
+        details: [
+          `Meta hook: ${scriptDetails.metaAdHook || normalizeArtifactText(stringValue(scriptPreview.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          ...detailLines(
+            'Meta body',
+            scriptDetails.metaAdBody.length > 0
+              ? scriptDetails.metaAdBody
+              : (Array.isArray(scriptPreview.meta_ad_body) ? scriptPreview.meta_ad_body.map((entry) => stringValue(entry)) : [])
+          ),
+          `Video opening line: ${scriptDetails.shortVideoOpeningLine || normalizeArtifactText(stringValue(scriptPreview.short_video_opening_line)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          ...detailLines(
+            'Video beats',
+            scriptDetails.shortVideoBeats.length > 0
+              ? scriptDetails.shortVideoBeats
+              : (Array.isArray(scriptPreview.short_video_beats) ? scriptPreview.short_video_beats.map((entry) => stringValue(entry)) : []),
+            2
+          ),
+        ],
+        path: stringValue(scriptPreview.meta_script_path) || stringValue(scriptPreview.short_video_script_path) || null,
+        preview_path: stringValue(scriptPreview.preview_path) || null,
+      })
+    );
+  }
+
+  for (const platform of platformPreviews) {
+    const assetPaths = asRecord(platform.asset_paths) ?? {};
+    const mediaPaths = Array.isArray(platform.media_paths) ? platform.media_paths.map((entry) => stringValue(entry)).filter(Boolean) : [];
+    const channelType = stringValue(platform.channel_type, 'draft');
+    reviewArtifacts.push(
+      artifact({
+        id: `launch-review-platform-${stringValue(platform.platform_slug, `platform-${reviewArtifacts.length}`)}`,
+        stage: 'publish',
+        title: stringValue(platform.platform_name, stringValue(platform.platform_slug, 'Platform preview')),
+        category: `${channelType} preview`,
+        status: 'awaiting_approval',
+        summary:
+          normalizeArtifactText(stringValue(platform.summary)) ||
+          normalizeArtifactText(stringValue(platform.headline)) ||
+          ARTIFACT_UNAVAILABLE_TEXT,
+        details: [
+          `Hook: ${normalizeArtifactText(stringValue(platform.hook)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Headline: ${normalizeArtifactText(stringValue(platform.headline)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `CTA: ${normalizeArtifactText(stringValue(platform.cta)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          ...detailLines(
+            channelType === 'video' ? 'Story beats' : 'Draft copy',
+            channelType === 'video'
+              ? (Array.isArray(platform.proof_points) ? platform.proof_points.map((entry) => stringValue(entry)) : [])
+              : [stringValue(platform.caption_text)],
+            3
+          ),
+          ...detailLines('Media paths', mediaPaths, 2),
+        ],
+        path: stringValue(assetPaths.contract_path) || stringValue(assetPaths.brief_path) || null,
+      })
+    );
+  }
+  return {
+    runId,
+    summary: {
+      summary: message,
+      highlight:
+        stringValue(reviewSummary.core_message) ||
+        `Static contracts: ${stringValue(publishPlan.static_contract_count, '0')}, Video contracts: ${stringValue(publishPlan.video_contract_count, '0')}`,
+    },
+    outputs: {
+      performance_marketer_preflight_path: preflightPath || null,
+      launch_review_preview_path: reviewPath || null,
+      preflight,
+      review,
+    },
+    artifacts: [
+      artifact({
+        id: 'launch-review',
+        stage: 'publish',
+        title: 'Launch review package',
+        category: 'approval',
+        status: 'awaiting_approval',
+        summary: message,
+        details: [
+          `Static contracts: ${stringValue(publishPlan.static_contract_count, '0')}`,
+          `Video contracts: ${stringValue(publishPlan.video_contract_count, '0')}`,
+          `Platform previews: ${platformPreviews.length}`,
+        ],
+        path: reviewPath || null,
+        preview_path: asString(asRecord(review?.artifacts)?.preview_path),
+      }),
+      ...reviewArtifacts,
+    ],
+  };
+}
+
+export async function collectPublishFinalizeArtifacts(
+  primaryOutput: Record<string, unknown> | null,
+  runtimeDoc?: SocialContentJobRuntimeDocument | null,
+): Promise<StageCapture> {
+  const runId = await resolveRunId(primaryOutput);
+  const tenantId = stringValue(runtimeDoc?.tenant_id);
+  const summaryPath = runId && tenantId ? stepPayloadPath(4, runId, 'performance_marketer_summary', tenantId) : '';
+  const summaryPayload = summaryPath ? await readJsonIfExists(summaryPath) : null;
+  const publisherSteps = [
+    'meta_ads_publisher',
+    'instagram_publisher',
+    'x_publisher',
+    'youtube_publisher',
+    'linkedin_publisher',
+    'reddit_publisher',
+  ] as const;
+  const publisherPayloads: Array<{
+    stepName: typeof publisherSteps[number];
+    payloadPath: string;
+    payload: Record<string, unknown>;
+  }> = [];
+  if (runId && tenantId) {
+    for (const stepName of publisherSteps) {
+      const payloadPath = stepPayloadPath(4, runId, stepName, tenantId);
+      const payload = await readJsonIfExists(payloadPath);
+      if (payload) {
+        publisherPayloads.push({ stepName, payloadPath, payload });
+      }
+    }
+  }
+
+  return {
+    runId,
+    summary: {
+      summary:
+        stringValue(asRecord(summaryPayload?.summary)?.message) ||
+        'Publish-ready channel packages were generated for the selected platforms.',
+      highlight: `${publisherPayloads.length} publish package(s) generated`,
+    },
+    outputs: {
+      performance_marketer_summary_path: summaryPath || null,
+      summary: summaryPayload,
+      publishers: publisherPayloads.map((entry) => ({
+        step: entry.stepName,
+        path: entry.payloadPath,
+        payload: entry.payload,
+      })),
+    },
+    artifacts: [
+      artifact({
+        id: 'publish-summary',
+        stage: 'publish',
+        title: 'Publish packages',
+        category: 'delivery',
+        status: 'completed',
+        summary:
+          stringValue(asRecord(summaryPayload?.summary)?.message) ||
+          'Selected platform packages were generated.',
+        details: publisherPayloads.map((entry) => {
+          const platform = stringValue(entry.payload.platform, entry.stepName);
+          const packageInfo = asRecord(entry.payload.publish_package) ?? {};
+          const status = stringValue(entry.payload.mode, 'generated');
+          return `${platform}: ${status}${packageInfo.review_package_path ? ' (review package ready)' : ''}`;
+        }),
+        path: summaryPath || null,
+      }),
+    ],
+  };
+}

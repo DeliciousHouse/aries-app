@@ -1,0 +1,555 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import { artifactOutputRoots, resolveGeneratedAsset } from './artifact-store';
+import { listMarketingDashboardAssetsForJob } from './dashboard-content';
+import { collectResearchStageArtifacts, collectStrategyReviewArtifacts } from './artifact-collector';
+import { createSocialContentJobFacts, type MarketingJobFacts } from './job-facts';
+import {
+  canonicalizePublishReviewPlatformSlug,
+  legacyPublishReviewLinkedAssetId,
+  legacyPublishReviewMediaAssetId,
+  publishReviewLinkedAssetId,
+  publishReviewMediaAssetId,
+} from './publish-review-asset-ids';
+import { extractPublishReviewBundle } from './publish-review';
+import { resolveStageOutput, type SocialContentJobRuntimeDocument } from './runtime-state';
+import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
+
+export type MarketingAssetDescriptor = {
+  id: string;
+  filePath: string;
+  label: string;
+  contentType: string;
+};
+
+export type MarketingAssetLink = {
+  id: string;
+  url: string;
+  label: string;
+  contentType: string;
+  posterUrl?: string | null;
+};
+
+export type MarketingAssetTenantOptions = {
+  tenantId?: string;
+};
+
+function assertRuntimeDocTenantMatches(
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  tenantId: string | undefined,
+): void {
+  if (tenantId === undefined) {
+    return;
+  }
+  const docTenant = typeof runtimeDoc.tenant_id === 'string' ? runtimeDoc.tenant_id.trim() : '';
+  if (docTenant !== tenantId) {
+    throw new Error(
+      `marketing_asset_tenant_mismatch:expected=${tenantId} actual=${docTenant || '<empty>'}`,
+    );
+  }
+}
+
+function outputRoots(): string[] {
+  return artifactOutputRoots();
+}
+
+function stringValue(value: unknown, fallback = ''): string {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return fallback;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function recordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && !Array.isArray(entry))
+    : [];
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((entry) => stringValue(entry)).filter(Boolean)
+    : [];
+}
+
+function slugify(value: string, fallback = ''): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => stringValue(value)).filter(Boolean)));
+}
+
+function normalizePublishPreviewSlug(platform: Record<string, unknown>, previewIndex: number): string {
+  return canonicalizePublishReviewPlatformSlug(platform.platform_slug, `platform-${previewIndex + 1}`);
+}
+
+async function sniffImageContentType(filePath: string): Promise<string | null> {
+  try {
+    const header = (await readFile(filePath)).subarray(0, 12);
+
+    if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+      return 'image/jpeg';
+    }
+    if (
+      header.length >= 8 &&
+      header[0] === 0x89 &&
+      header[1] === 0x50 &&
+      header[2] === 0x4e &&
+      header[3] === 0x47 &&
+      header[4] === 0x0d &&
+      header[5] === 0x0a &&
+      header[6] === 0x1a &&
+      header[7] === 0x0a
+    ) {
+      return 'image/png';
+    }
+    if (header.length >= 6) {
+      const signature = header.subarray(0, 6).toString('utf8');
+      if (signature === 'GIF87a' || signature === 'GIF89a') {
+        return 'image/gif';
+      }
+    }
+    if (
+      header.length >= 12 &&
+      header.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      header.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) {
+      return 'image/webp';
+    }
+  } catch {}
+
+  return null;
+}
+
+async function sniffIsoBmffContentType(filePath: string): Promise<string | null> {
+  // ISO Base Media File Format (mp4/mov/m4v/etc.) starts with a 4-byte size
+  // followed by the 'ftyp' box type. Both QuickTime (.mov) and MP4 share
+  // the same outer container, so this is only safe to consult when the
+  // extension already failed — otherwise we'd collapse .mov into video/mp4
+  // and lose the QuickTime distinction.
+  try {
+    const header = (await readFile(filePath)).subarray(0, 8);
+
+    if (header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
+      return 'video/mp4';
+    }
+  } catch {}
+
+  return null;
+}
+
+export async function contentTypeForAsset(filePath: string): Promise<string> {
+  // Image magic bytes are unambiguous (a JPEG header can only mean JPEG, a
+  // PNG signature can only mean PNG, etc.), so we let the bytes override
+  // the extension when they disagree — operators routinely save sniffed
+  // previews under whatever extension the source URL had.
+  const sniffedImage = await sniffImageContentType(filePath);
+  if (sniffedImage) {
+    return sniffedImage;
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.gif':
+      return 'image/gif';
+    case '.webp':
+      return 'image/webp';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.mp4':
+      return 'video/mp4';
+    case '.m4v':
+      return 'video/x-m4v';
+    case '.mov':
+      return 'video/quicktime';
+    case '.webm':
+      return 'video/webm';
+    case '.ogv':
+    case '.ogg':
+      return 'video/ogg';
+    case '.html':
+      return 'text/html; charset=utf-8';
+    case '.md':
+      return 'text/markdown; charset=utf-8';
+    case '.txt':
+      return 'text/plain; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.js':
+      return 'text/javascript; charset=utf-8';
+  }
+
+  // ISOBMFF (`ftyp`) sniffing is ambiguous between MP4 and QuickTime, so we
+  // only run it when the extension didn't pick a winner above.
+  const sniffedIsoBmff = await sniffIsoBmffContentType(filePath);
+  if (sniffedIsoBmff) {
+    return sniffedIsoBmff;
+  }
+
+  // Binary assets that don't match the explicit map above should fall back
+  // to application/octet-stream. The old default of text/plain forced the
+  // browser to attempt inline-rendering of bytes like .mp4 that then broke
+  // because the response advertised itself as text.
+  return 'application/octet-stream';
+}
+
+export function marketingAssetUrl(jobId: string, assetId: string): string {
+  return `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`;
+}
+
+export async function buildMarketingAssetLibrary(
+  jobId: string,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+  options: MarketingAssetTenantOptions = {},
+): Promise<MarketingAssetDescriptor[]> {
+  assertRuntimeDocTenantMatches(runtimeDoc, options.tenantId);
+  const assets: MarketingAssetDescriptor[] = [];
+  const assetById = new Map<string, MarketingAssetDescriptor>();
+  const resolvedFacts = facts ?? createSocialContentJobFacts(runtimeDoc, null);
+  const resolveAssetPath = (
+    filePath: string | null | undefined,
+    fallbackPaths: Array<string | null | undefined> = []
+  ): string | null => {
+    const candidates = [filePath, ...fallbackPaths]
+      .map((value) => stringValue(value))
+      .filter(Boolean);
+
+    for (const candidate of candidates) {
+      const resolved = resolveGeneratedAsset(candidate);
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    return null;
+  };
+
+  const addAsset = async (
+    id: string,
+    filePath: string | null | undefined,
+    label: string,
+    fallbackPaths: Array<string | null | undefined> = []
+  ) => {
+    if (assetById.has(id)) {
+      return;
+    }
+    const resolvedPath = resolveAssetPath(filePath, fallbackPaths);
+    if (!resolvedPath) {
+      return;
+    }
+    assetById.set(id, {
+      id,
+      filePath: resolvedPath,
+      label,
+      contentType: await contentTypeForAsset(resolvedPath),
+    });
+  };
+
+  const strategyOutputs = resolveStageOutput(runtimeDoc, 'strategy');
+  const researchFallback = await collectResearchStageArtifacts(
+    resolvedFacts,
+    runtimeDoc.stages.research.primary_output || { run_id: runtimeDoc.stages.research.run_id },
+  );
+  const validatedProfileDocs = await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
+    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+  });
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+  });
+  const strategyFallback = await collectStrategyReviewArtifacts(
+    resolvedFacts,
+    runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
+  );
+  const researchSummaryPath =
+    stringValue(researchFallback.outputs.compile_path) ||
+    null;
+  const websiteAnalysisPath =
+    validatedProfileDocs.paths.websiteAnalysis ||
+    stringValue(strategyOutputs?.validated_website_analysis_path) ||
+    stringValue(strategyOutputs?.website_brand_analysis_path) ||
+    stringValue(strategyFallback.outputs.website_brand_analysis_path) ||
+    null;
+  const plannerPath =
+    stringValue(strategyOutputs?.social_content_planner_path) ||
+    stringValue(strategyOutputs?.campaign_planner_path) || // legacy compat
+    stringValue(strategyFallback.outputs.social_content_planner_path) ||
+    stringValue(strategyFallback.outputs.campaign_planner_path) || // legacy compat
+    null;
+  const strategyReviewPath =
+    stringValue(strategyOutputs?.strategy_review_path) ||
+    stringValue(strategyFallback.outputs.strategy_review_path) ||
+    null;
+  let websiteAnalysis: Record<string, unknown> | null = null;
+  if (websiteAnalysisPath) {
+    try {
+      const resolvedWebsiteAnalysisPath = resolveAssetPath(websiteAnalysisPath);
+      websiteAnalysis = resolvedWebsiteAnalysisPath
+        ? recordValue(JSON.parse(await readFile(resolvedWebsiteAnalysisPath, 'utf8')))
+        : null;
+    } catch {
+      websiteAnalysis = null;
+    }
+  }
+  websiteAnalysis ||= validatedProfileDocs.websiteAnalysis;
+  websiteAnalysis ||= recordValue(strategyFallback.outputs.website);
+  const brandArtifacts = recordValue(websiteAnalysis?.artifacts);
+  const brandSlugCandidates = uniqueStrings([
+    validatedProfile.brandSlug,
+    stringValue(websiteAnalysis?.brand_slug),
+    stringValue(recordValue(websiteAnalysis?.brand_analysis)?.brand_slug),
+    slugify(stringValue(runtimeDoc.tenant_id)),
+    slugify(stringValue(validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name)),
+    (() => {
+      const candidateUrl = stringValue(validatedProfile.canonicalUrl || runtimeDoc.brand_kit?.canonical_url, stringValue(validatedProfile.websiteUrl || runtimeDoc.inputs.brand_url));
+      if (!candidateUrl) {
+        return '';
+      }
+      try {
+        return slugify(new URL(candidateUrl).hostname.replace(/^www\./, ''));
+      } catch {
+        return '';
+      }
+    })(),
+  ]);
+
+  await addAsset('research-summary', researchSummaryPath, 'Competitor research summary');
+  await addAsset('strategy-website-analysis', websiteAnalysisPath, 'Website brand analysis');
+  await addAsset(
+    'brand-kit-json',
+    runtimeDoc.brand_kit?.path || validatedProfileDocs.paths.brandKit,
+    'Extracted brand kit',
+    [validatedProfileDocs.paths.brandKit],
+  );
+  await addAsset('strategy-campaign-planner', plannerPath, 'Social content planner');
+  await addAsset('strategy-review-preview', strategyReviewPath, 'Strategy review preview');
+  await addAsset(
+    'brand-bible-markdown',
+    stringValue(brandArtifacts?.brand_bible_markdown_path) || null,
+    'Brand bible',
+    outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-brand-bible.md`))),
+  );
+  await addAsset(
+    'brand-design-system',
+    stringValue(brandArtifacts?.design_system_css_path) || null,
+    'Design system',
+    outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-design-system.css`))),
+  );
+
+  if (brandSlugCandidates.length > 0) {
+    await addAsset(
+      'strategy-proposal-markdown',
+      null,
+      'Social content proposal',
+      outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-campaign-proposal.md`))),
+    );
+    await addAsset(
+      'strategy-proposal-html',
+      null,
+      'Campaign proposal preview',
+      outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-campaign-proposal.html`))),
+    );
+  }
+
+  const dashboardAssets = await listMarketingDashboardAssetsForJob(jobId);
+  const previewFallbacksByPlatform = new Map<string, string[]>();
+  const rememberPreviewFallback = (platform: string, filePath: string) => {
+    previewFallbacksByPlatform.set(platform, [
+      ...(previewFallbacksByPlatform.get(platform) || []),
+      filePath,
+    ]);
+  };
+
+  for (const asset of dashboardAssets) {
+    if (!asset.filePath || !asset.contentType?.startsWith('image/')) {
+      continue;
+    }
+    if (
+      !asset.id.startsWith('publish-image-') &&
+      !asset.id.startsWith('publish-fallback-') &&
+      !asset.id.startsWith('image-')
+    ) {
+      continue;
+    }
+    rememberPreviewFallback(asset.platform, asset.filePath);
+  }
+
+  const reviewBundle = await extractPublishReviewBundle(runtimeDoc, resolvedFacts);
+  if (reviewBundle) {
+    const artifactPaths = recordValue(reviewBundle.artifact_paths);
+    const landingPage = recordValue(reviewBundle.landing_page_preview);
+    const scriptPreview = recordValue(reviewBundle.script_preview);
+    const reviewPacket = recordValue(reviewBundle.review_packet);
+    const platformPreviews = recordArray(reviewBundle.platform_previews);
+
+    await addAsset('launch-review-preview', stringValue(artifactPaths?.preview_path) || null, 'Launch review preview');
+    await addAsset('landing-page-path', stringValue(landingPage?.landing_page_path) || null, 'Landing page');
+    await addAsset('script-meta', stringValue(scriptPreview?.meta_script_path) || null, 'Meta script');
+    await addAsset('script-video', stringValue(scriptPreview?.short_video_script_path) || null, 'Short video script');
+    await addAsset('review-packet-production', stringValue(reviewPacket?.production_review_preview_path) || null, 'Production review preview');
+    await addAsset('review-packet-canonical', stringValue(reviewPacket?.canonical_review_packet_path) || null, 'Canonical review packet');
+
+    for (const [previewIndex, platform] of platformPreviews.entries()) {
+      const slug = normalizePublishPreviewSlug(platform, previewIndex);
+      const platformName = stringValue(platform.platform_name, slug);
+      const assetPaths = recordValue(platform.asset_paths);
+
+      for (const [index, filePath] of stringArray(platform.media_paths).entries()) {
+        await addAsset(
+          publishReviewMediaAssetId({
+            platformSlug: slug,
+            previewIndex,
+            explicitPreviewAssetId: platform.asset_preview_id,
+            mediaIndex: index,
+          }),
+          filePath,
+          `${platformName} media ${index + 1}`,
+          previewFallbacksByPlatform.get(slug) || previewFallbacksByPlatform.get('landing-page') || []
+        );
+      }
+      await addAsset(
+        publishReviewLinkedAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId: platform.asset_preview_id,
+          suffix: 'contract',
+        }),
+        stringValue(assetPaths?.contract_path) || null,
+        `${platformName} contract`,
+      );
+      await addAsset(
+        publishReviewLinkedAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId: platform.asset_preview_id,
+          suffix: 'brief',
+        }),
+        stringValue(assetPaths?.brief_path) || null,
+        `${platformName} brief`,
+      );
+      await addAsset(
+        publishReviewLinkedAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId: platform.asset_preview_id,
+          suffix: 'landing-page',
+        }),
+        stringValue(assetPaths?.landing_page_path) || null,
+        `${platformName} landing page`,
+      );
+    }
+  }
+
+  for (const asset of dashboardAssets) {
+    if (!asset.filePath) {
+      continue;
+    }
+    await addAsset(asset.id, asset.filePath, asset.title);
+  }
+
+  assets.push(...assetById.values());
+  return assets;
+}
+
+export async function buildMarketingAssetLinks(
+  jobId: string,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+  options: MarketingAssetTenantOptions = {},
+): Promise<MarketingAssetLink[]> {
+  assertRuntimeDocTenantMatches(runtimeDoc, options.tenantId);
+  return (await buildMarketingAssetLibrary(jobId, runtimeDoc, facts, options)).map((asset) => ({
+    id: asset.id,
+    url: marketingAssetUrl(jobId, asset.id),
+    label: asset.label,
+    contentType: asset.contentType,
+  }));
+}
+
+export async function findMarketingAsset(
+  jobId: string,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  assetId: string,
+  facts?: MarketingJobFacts,
+  options: MarketingAssetTenantOptions = {},
+): Promise<MarketingAssetDescriptor | null> {
+  assertRuntimeDocTenantMatches(runtimeDoc, options.tenantId);
+  const resolvedFacts = facts ?? createSocialContentJobFacts(runtimeDoc, null);
+  const assets = await buildMarketingAssetLibrary(jobId, runtimeDoc, resolvedFacts, options);
+  const directMatch = assets.find((asset) => asset.id === assetId);
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const reviewBundle = await extractPublishReviewBundle(runtimeDoc, resolvedFacts);
+  const platformPreviews = recordArray(reviewBundle?.platform_previews);
+  const legacyToCanonical = new Map<string, string>();
+
+  for (const [previewIndex, platform] of platformPreviews.entries()) {
+    const slug = normalizePublishPreviewSlug(platform, previewIndex);
+    const explicitPreviewAssetId = platform.asset_preview_id;
+
+    stringArray(platform.media_paths).forEach((_, mediaIndex) => {
+      legacyToCanonical.set(
+        legacyPublishReviewMediaAssetId(slug, mediaIndex),
+        publishReviewMediaAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId,
+          mediaIndex,
+        }),
+      );
+    });
+
+    for (const suffix of ['contract', 'brief', 'landing-page'] as const) {
+      const assetPaths = recordValue(platform.asset_paths);
+      const candidatePath =
+        suffix === 'contract'
+          ? stringValue(assetPaths?.contract_path)
+          : suffix === 'brief'
+            ? stringValue(assetPaths?.brief_path)
+            : stringValue(assetPaths?.landing_page_path);
+      if (!candidatePath) {
+        continue;
+      }
+      legacyToCanonical.set(
+        legacyPublishReviewLinkedAssetId(slug, suffix),
+        publishReviewLinkedAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId,
+          suffix,
+        }),
+      );
+    }
+  }
+
+  const canonicalId = legacyToCanonical.get(assetId);
+  if (!canonicalId) {
+    return null;
+  }
+
+  return assets.find((asset) => asset.id === canonicalId) ?? null;
+}

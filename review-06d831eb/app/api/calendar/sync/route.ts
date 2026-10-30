@@ -1,0 +1,5 @@
+import { handleCalendarSync } from './handler';
+
+export async function POST(req: Request) {
+  return handleCalendarSync(req);
+}

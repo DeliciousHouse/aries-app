@@ -1,0 +1,2283 @@
+const { Pool } = require('pg');
+require('dotenv').config();
+
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  port: parseInt(process.env.DB_PORT || '5432'),
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+});
+
+async function initDb() {
+  const client = await pool.connect();
+  try {
+    console.log('Initializing database schema...');
+
+    // Bound every init query, including catalog checks and DDL. Deploy also
+    // supplies the same limits through PGOPTIONS; setting them here keeps
+    // direct db:init and runtime initialization fail-closed too.
+    await client.query(`
+      SET lock_timeout = '5s';
+      SET statement_timeout = '120s'
+    `);
+
+    // Constraint migrations are catalog-guarded so routine deploys do not take
+    // table locks just to DROP/ADD a definition that is already current. Every
+    // caller supplies a distinctive fragment introduced by its latest shape.
+    await client.query(`
+      CREATE TEMP TABLE IF NOT EXISTS __aries_init_guard (id INTEGER);
+      CREATE OR REPLACE FUNCTION pg_temp.ensure_check_constraint(
+        table_name regclass,
+        constraint_name text,
+        expected_fragment text,
+        check_expression text
+      ) RETURNS void
+      LANGUAGE plpgsql
+      AS $function$
+      DECLARE
+        live_definition text;
+      BEGIN
+        SELECT pg_get_constraintdef(oid)
+          INTO live_definition
+          FROM pg_constraint
+         WHERE conrelid = table_name
+           AND conname = constraint_name
+           AND contype = 'c';
+
+        IF live_definition IS NOT NULL
+           AND position(expected_fragment in live_definition) > 0 THEN
+          RETURN;
+        END IF;
+
+        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I', table_name, constraint_name);
+        EXECUTE format('ALTER TABLE %s ADD CONSTRAINT %I CHECK (%s)', table_name, constraint_name, check_expression);
+      END
+      $function$;
+    `);
+    
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS organizations (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        slug TEXT UNIQUE,
+        kind TEXT NOT NULL DEFAULT 'production'
+          CHECK (kind IN ('production', 'test', 'archived')),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT,
+        organization_id INTEGER REFERENCES organizations(id),
+        role TEXT NOT NULL DEFAULT 'tenant_admin',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      ALTER TABLE organizations
+        ADD COLUMN IF NOT EXISTS slug TEXT;
+
+      ALTER TABLE organizations
+        ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'production';
+
+      SELECT pg_temp.ensure_check_constraint(
+        'organizations'::regclass,
+        'organizations_kind_check',
+        'archived',
+        $check$kind IN ('production','test','archived')$check$
+      );
+
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'tenant_admin';
+
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS onboarding_required BOOLEAN NOT NULL DEFAULT FALSE;
+
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMPTZ;
+
+      ALTER TABLE organizations
+        ADD COLUMN IF NOT EXISTS onboarding_memory_seeded_at TIMESTAMPTZ;
+
+      CREATE TABLE IF NOT EXISTS early_access_signups (
+        id BIGSERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        source TEXT NOT NULL DEFAULT 'website',
+        user_agent TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    // In-app feedback button (migrations/20260623000000_feedback_submissions.sql).
+    // tenant_id is TEXT with no FK so unauthenticated users can file feedback.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS feedback_submissions (
+        id BIGSERIAL PRIMARY KEY,
+        submission_id TEXT UNIQUE NOT NULL,
+        tenant_id TEXT NOT NULL DEFAULT 'unauthenticated',
+        auth_state TEXT NOT NULL DEFAULT 'unauthenticated',
+        user_id TEXT,
+        category TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        comment TEXT NOT NULL,
+        page_url TEXT,
+        user_agent TEXT,
+        viewport TEXT,
+        console_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+        environment TEXT NOT NULL DEFAULT 'unknown',
+        ip_hash TEXT,
+        screenshot_bytes BYTEA,
+        screenshot_mime TEXT,
+        screenshot_link TEXT,
+        sheet_sync_status TEXT NOT NULL DEFAULT 'pending',
+        sheet_sync_error TEXT,
+        sheet_synced_at TIMESTAMPTZ,
+        jira_issue_key TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      -- The feedback mirror now targets JIRA; record the created issue key.
+      -- ADD COLUMN IF NOT EXISTS so existing deployments pick it up (the bare
+      -- CREATE TABLE IF NOT EXISTS above is a no-op on an existing table).
+      ALTER TABLE feedback_submissions ADD COLUMN IF NOT EXISTS jira_issue_key TEXT;
+      CREATE INDEX IF NOT EXISTS idx_feedback_submissions_created_at ON feedback_submissions (created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_feedback_submissions_sync_status ON feedback_submissions (sheet_sync_status);
+      CREATE INDEX IF NOT EXISTS idx_feedback_submissions_tenant ON feedback_submissions (tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_feedback_submissions_ip_hash_created ON feedback_submissions (ip_hash, created_at DESC);
+    `);
+
+    // Customer incident reports — SC-70 port, AA-51
+    // (migrations/20260703000000_feedback_reports.sql). Public, impact-rated
+    // reports that preserve authenticated attribution or explicitly mark an
+    // anonymous submitter; distinct from the legacy feedback_submissions table.
+    // New screenshot bytes stay private in Aries and are never copied to Jira.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS feedback_reports (
+        id TEXT PRIMARY KEY,
+        request_fingerprint TEXT NOT NULL DEFAULT '',
+        submitter_type TEXT NOT NULL DEFAULT 'authenticated'
+          CHECK (submitter_type IN ('authenticated','anonymous')),
+        tenant_id TEXT NOT NULL,
+        submitter_id TEXT NOT NULL,
+        submitter_email TEXT,
+        submitter_name TEXT,
+        customer_slug TEXT NOT NULL DEFAULT 'unknown',
+        category TEXT NOT NULL CHECK (category IN ('bug','question','other')),
+        impact TEXT NOT NULL CHECK (impact IN (
+          'p0_system_blocked','p1_account_blocked','p2_feature_degraded',
+          'p3_minor_glitch','p4_question'
+        )),
+        title VARCHAR(255) NOT NULL,
+        description TEXT NOT NULL,
+        page_path TEXT,
+        screenshot_bytes BYTEA,
+        screenshot_mime VARCHAR(64),
+        jira_ticket_key VARCHAR(50),
+        jira_create_state TEXT NOT NULL DEFAULT 'not_started'
+          CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
+        jira_create_token TEXT,
+        attachment_state TEXT NOT NULL DEFAULT 'none'
+          CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private')),
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending','synced','pending_retry','failed')),
+        attempts INT NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS submitter_type TEXT NOT NULL DEFAULT 'authenticated'
+          CHECK (submitter_type IN ('authenticated','anonymous'));
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT '';
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS page_path TEXT;
+      DO $feedback_delivery_state$
+      DECLARE
+        jira_create_state_was_missing BOOLEAN;
+        attachment_state_was_missing BOOLEAN;
+      BEGIN
+        LOCK TABLE feedback_reports IN ACCESS EXCLUSIVE MODE;
+
+        SELECT NOT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'feedback_reports'
+             AND column_name = 'jira_create_state'
+        ) INTO jira_create_state_was_missing;
+        SELECT NOT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'feedback_reports'
+             AND column_name = 'attachment_state'
+        ) INTO attachment_state_was_missing;
+
+        ALTER TABLE feedback_reports
+          ADD COLUMN IF NOT EXISTS jira_create_state TEXT NOT NULL DEFAULT 'not_started'
+            CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
+          ADD COLUMN IF NOT EXISTS jira_create_token TEXT,
+          ADD COLUMN IF NOT EXISTS attachment_state TEXT NOT NULL DEFAULT 'none'
+            CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private'));
+
+        IF jira_create_state_was_missing THEN
+          UPDATE feedback_reports
+             SET jira_create_state = 'completed'
+           WHERE jira_ticket_key IS NOT NULL;
+          UPDATE feedback_reports
+             SET jira_create_state = 'uncertain',
+                 jira_create_token = COALESCE(jira_create_token, 'aries-sub-' || id)
+           WHERE jira_ticket_key IS NULL;
+        END IF;
+
+        IF attachment_state_was_missing THEN
+          UPDATE feedback_reports
+             SET attachment_state = 'uncertain'
+           WHERE screenshot_bytes IS NOT NULL;
+        END IF;
+      END
+      $feedback_delivery_state$;
+      CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
+        ON feedback_reports (status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_feedback_reports_tenant_submitter_created
+        ON feedback_reports (tenant_id, submitter_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_feedback_reports_ticket_key
+        ON feedback_reports (jira_ticket_key);
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS oauth_connections (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack')),
+        external_account_id TEXT,
+        external_account_name TEXT,
+        -- Per-tenant Slack notification target (Phase 4 Option A): the channel the
+        -- bot posts approval notifications to for this tenant. NULL for non-Slack
+        -- providers and for a Slack connection before the operator picks a channel.
+        notify_channel_id TEXT,
+        notify_channel_name TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pending','connected','reauthorization_required','disconnected','error')),
+        granted_scopes TEXT[] NOT NULL DEFAULT '{}',
+        token_expires_at TIMESTAMPTZ,
+        refresh_expires_at TIMESTAMPTZ,
+        connected_at TIMESTAMPTZ,
+        disconnected_at TIMESTAMPTZ,
+        last_error_code TEXT,
+        last_error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, provider)
+      );
+
+      CREATE TABLE IF NOT EXISTS oauth_tokens (
+        id BIGSERIAL PRIMARY KEY,
+        connection_id BIGINT NOT NULL REFERENCES oauth_connections(id) ON DELETE CASCADE,
+        access_token_enc TEXT,
+        refresh_token_enc TEXT,
+        token_type TEXT,
+        scope TEXT,
+        expires_at TIMESTAMPTZ,
+        refresh_expires_at TIMESTAMPTZ,
+        issued_at TIMESTAMPTZ,
+        rotated_from_token_id BIGINT REFERENCES oauth_tokens(id),
+        revoked_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS oauth_pending_states (
+        state TEXT PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        scopes TEXT[] NOT NULL DEFAULT '{}',
+        connection_id BIGINT REFERENCES oauth_connections(id) ON DELETE SET NULL,
+        code_verifier TEXT,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      ALTER TABLE oauth_pending_states
+        ADD COLUMN IF NOT EXISTS code_verifier TEXT;
+      ALTER TABLE oauth_pending_states
+        ADD COLUMN IF NOT EXISTS picker_payload JSONB;
+
+      -- Per-tenant Slack (Phase 4 Option A), applied to EXISTING databases:
+      -- widen the provider CHECK to allow 'slack' and add the notify-channel
+      -- columns. The catalog-guarded helper avoids table locks when the live
+      -- definition already contains the latest provider.
+      SELECT pg_temp.ensure_check_constraint(
+        'oauth_connections'::regclass,
+        'oauth_connections_provider_check',
+        'slack',
+        $check$provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack')$check$
+      );
+      ALTER TABLE oauth_connections
+        ADD COLUMN IF NOT EXISTS notify_channel_id TEXT;
+      ALTER TABLE oauth_connections
+        ADD COLUMN IF NOT EXISTS notify_channel_name TEXT;
+      ALTER TABLE oauth_connections
+        ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ;
+      UPDATE oauth_connections
+         SET status_changed_at = COALESCE(updated_at, created_at, now())
+       WHERE status_changed_at IS NULL;
+      ALTER TABLE oauth_connections
+        ALTER COLUMN status_changed_at SET DEFAULT now(),
+        ALTER COLUMN status_changed_at SET NOT NULL;
+      CREATE TABLE IF NOT EXISTS oauth_audit_events (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+        connection_id BIGINT REFERENCES oauth_connections(id) ON DELETE SET NULL,
+        provider TEXT,
+        event_type TEXT NOT NULL,
+        event_status TEXT NOT NULL CHECK (event_status IN ('ok','error')),
+        detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_oauth_connections_tenant_provider ON oauth_connections (tenant_id, provider);
+      CREATE INDEX IF NOT EXISTS idx_oauth_tokens_connection_created ON oauth_tokens (connection_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_oauth_pending_states_expires ON oauth_pending_states (expires_at);
+      CREATE INDEX IF NOT EXISTS idx_oauth_audit_tenant_time ON oauth_audit_events (tenant_id, occurred_at DESC);
+    `);
+
+    // connected_accounts — end-user social/ad connections established through the
+    // optional Composio integration layer (backend/integrations/composio).
+    // SECURITY: this table intentionally has NO access/refresh-token column. It
+    // persists the Composio connected_account_id (a pointer to the credential
+    // Composio holds) and the auth_config_id, never the raw OAuth secret itself.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS connected_accounts (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        external_user_id TEXT NOT NULL,
+        platform TEXT NOT NULL CHECK (platform IN ('facebook','instagram','meta_ads','tiktok','youtube','linkedin','reddit','x')),
+        provider TEXT NOT NULL DEFAULT 'composio' CHECK (provider IN ('composio','direct_meta','none')),
+        connected_account_id TEXT,
+        auth_config_id TEXT,
+        external_account_id TEXT,
+        external_account_name TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('not_connected','pending','connected','reauthorization_required','error')),
+        capabilities_json JSONB,
+        last_capability_check_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, platform)
+      );
+
+      ALTER TABLE connected_accounts
+        ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ;
+      UPDATE connected_accounts
+         SET status_changed_at = COALESCE(updated_at, created_at, now())
+       WHERE status_changed_at IS NULL;
+      ALTER TABLE connected_accounts
+        ALTER COLUMN status_changed_at SET DEFAULT now(),
+        ALTER COLUMN status_changed_at SET NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant ON connected_accounts (tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant_platform ON connected_accounts (tenant_id, platform);
+
+      -- X (Twitter) connect (#650 added 'x' to IntegrationPlatform but not this
+      -- CHECK), applied to EXISTING databases: widen the platform CHECK to allow
+      -- 'x' so the Composio connect callback's upsertConnection(platform='x') is
+      -- not rejected at the DB layer. The catalog guard skips an already-current
+      -- constraint. Mirrored in
+      -- migrations/20260618000000_connected_accounts_allow_x.sql.
+      SELECT pg_temp.ensure_check_constraint(
+        'connected_accounts'::regclass,
+        'connected_accounts_platform_check',
+        '''x''',
+        $check$platform IN ('facebook','instagram','meta_ads','tiktok','youtube','linkedin','reddit','x')$check$
+      );
+
+      CREATE OR REPLACE FUNCTION set_connection_status_changed_at()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $function$
+      BEGIN
+        IF NEW.status IS DISTINCT FROM OLD.status THEN
+          NEW.status_changed_at = now();
+        END IF;
+        RETURN NEW;
+      END;
+      $function$;
+
+      DROP TRIGGER IF EXISTS connected_accounts_status_changed_at ON connected_accounts;
+      CREATE TRIGGER connected_accounts_status_changed_at
+        BEFORE UPDATE OF status ON connected_accounts
+        FOR EACH ROW EXECUTE FUNCTION set_connection_status_changed_at();
+
+      DROP TRIGGER IF EXISTS oauth_connections_status_changed_at ON oauth_connections;
+      CREATE TRIGGER oauth_connections_status_changed_at
+        BEFORE UPDATE OF status ON oauth_connections
+        FOR EACH ROW EXECUTE FUNCTION set_connection_status_changed_at();
+
+      CREATE TABLE IF NOT EXISTS connection_nudge_notifications (
+        source TEXT NOT NULL CHECK (source IN ('connected_accounts','oauth_connections')),
+        connection_id BIGINT NOT NULL,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL,
+        nudge_kind TEXT NOT NULL CHECK (nudge_kind IN ('reauthorization_required','pending_over_7_days')),
+        status_changed_at TIMESTAMPTZ NOT NULL,
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (source, connection_id, nudge_kind, status_changed_at)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_connection_nudges_tenant_sent
+        ON connection_nudge_notifications (tenant_id, sent_at DESC);
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS onboarding_drafts (
+        draft_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready_for_auth','materializing','materialized')),
+        website_url TEXT NOT NULL DEFAULT '',
+        business_name TEXT NOT NULL DEFAULT '',
+        business_type TEXT NOT NULL DEFAULT '',
+        approver_name TEXT NOT NULL DEFAULT '',
+        channels TEXT[] NOT NULL DEFAULT '{}',
+        goal TEXT NOT NULL DEFAULT '',
+        offer TEXT NOT NULL DEFAULT '',
+        brand_voice TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        competitor_url TEXT NOT NULL DEFAULT '',
+        preview JSONB,
+        provenance JSONB NOT NULL DEFAULT '{}'::jsonb,
+        materialized_tenant_id TEXT,
+        materialized_job_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS brand_voice TEXT NOT NULL DEFAULT '';
+      ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
+      ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS profile_context JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+      CREATE TABLE IF NOT EXISTS business_profiles (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        business_name TEXT,
+        tenant_slug TEXT,
+        website_url TEXT,
+        business_type TEXT,
+        primary_goal TEXT,
+        primary_goal_source TEXT NOT NULL DEFAULT 'inferred' CHECK (primary_goal_source IN ('explicit', 'inferred')),
+        goal_type TEXT CHECK (goal_type IS NULL OR goal_type IN ('lead_generation', 'content_growth', 'product_sales', 'brand_awareness')),
+        launch_approver_user_id TEXT,
+        launch_approver_name TEXT,
+        offer TEXT,
+        brand_voice TEXT,
+        style_vibe TEXT,
+        notes TEXT,
+        competitor_url TEXT,
+        channels TEXT[] NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      -- A4: per-tenant business timezone (IANA string, e.g. America/New_York).
+      -- The calendar planner grid, schedule input conversion, and every
+      -- timestamp label render and convert in this one zone. Nullable; an
+      -- unset value falls back to the fixed default in lib/format-timestamp.ts.
+      ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS timezone TEXT;
+      ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS operator_updated BOOLEAN NOT NULL DEFAULT false;
+
+      -- Per-tenant default reel audio mode (music | voiceover | both). Governs
+      -- every reel for the tenant (automated weekly companion + create-form
+      -- jobs) unless a per-job override is supplied. Nullable; an unset value
+      -- falls back to the fixed default ('music') in reel-audio-mode.ts.
+      ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reel_audio_mode TEXT;
+
+      -- Preserve whether the primary goal came from a person's explicit choice
+      -- or system inference. Pre-column rows have no durable provenance, so all
+      -- legacy values remain inferred until a person explicitly confirms them.
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'business_profiles'
+            AND column_name = 'primary_goal_source'
+        ) THEN
+          ALTER TABLE business_profiles
+            ADD COLUMN IF NOT EXISTS primary_goal_source TEXT NOT NULL DEFAULT 'inferred'
+            CHECK (primary_goal_source IN ('explicit', 'inferred'));
+        END IF;
+      END $$;
+
+      -- AA-115 / S6-2: canonical goal key beside the descriptive free text.
+      -- NULL means Aries has not confidently mapped the goal, which is what the
+      -- S1-5 confirm chip surfaces. Never populated here: the read path defaults
+      -- every unmatched goal to brand_awareness, and writing that default would
+      -- turn a visible guess into a settled-looking fact. The data pass is
+      -- scripts/backfill-business-profile-goal-type.ts (confident matches only).
+      ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS goal_type TEXT;
+
+      -- Matches the name PostgreSQL auto-generates for the inline column CHECK
+      -- above, so a fresh database skips this and a pre-existing one (which got
+      -- goal_type from the bare ADD COLUMN) gains the identical constraint.
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'business_profiles'::regclass
+            AND conname = 'business_profiles_goal_type_check'
+        ) THEN
+          ALTER TABLE business_profiles
+            ADD CONSTRAINT business_profiles_goal_type_check
+            CHECK (goal_type IS NULL OR goal_type IN (
+              'lead_generation', 'content_growth', 'product_sales', 'brand_awareness'
+            ));
+        END IF;
+      END $$;
+    `);
+
+    await client.query(`
+      CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+      CREATE TABLE IF NOT EXISTS creative_assets (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        source_type TEXT NOT NULL CHECK (source_type IN ('owned_instagram','owned_facebook','owned_meta_ad','competitor_meta_ad','manual_upload','generated_by_aries','runtime_artifact','landing_page_screenshot')),
+        permission_scope TEXT NOT NULL CHECK (permission_scope IN ('owned','public_ad_library','user_uploaded','generated','licensed')),
+        media_type TEXT NOT NULL CHECK (media_type IN ('image','video','carousel','landing_page','script','prompt')),
+        source_job_id TEXT,
+        source_asset_id TEXT,
+        served_asset_ref TEXT,
+        storage_kind TEXT NOT NULL DEFAULT 'none' CHECK (storage_kind IN ('runtime_asset','ingested_asset','external_url','none')),
+        storage_key TEXT,
+        exact_image_text TEXT[] NOT NULL DEFAULT '{}',
+        aspect_ratio TEXT,
+        checksum TEXT,
+        usable_for_generation BOOLEAN NOT NULL DEFAULT FALSE,
+        learning_lifecycle TEXT NOT NULL DEFAULT 'observed' CHECK (learning_lifecycle IN ('observed','analyzed','suggested','approved_for_generation','archived')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        variant_batch_id TEXT,
+        variant_index INTEGER,
+        width_px INTEGER,
+        height_px INTEGER,
+        duration_seconds INTEGER,
+        UNIQUE (tenant_id, id),
+        CONSTRAINT creative_assets_exact_image_text_generation_check CHECK (media_type <> 'image' OR usable_for_generation = FALSE OR learning_lifecycle <> 'approved_for_generation' OR array_length(exact_image_text, 1) IS NOT NULL),
+        CONSTRAINT creative_assets_competitor_not_usable_check CHECK ((source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library') OR usable_for_generation = FALSE)
+      );
+
+      CREATE TABLE IF NOT EXISTS creative_analyses (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        creative_asset_id UUID NOT NULL,
+        hook_type TEXT,
+        visual_style_tags TEXT[] NOT NULL DEFAULT '{}',
+        copy_style_tags TEXT[] NOT NULL DEFAULT '{}',
+        strengths TEXT[] NOT NULL DEFAULT '{}',
+        weaknesses TEXT[] NOT NULL DEFAULT '{}',
+        model_used TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, id),
+        FOREIGN KEY (tenant_id, creative_asset_id) REFERENCES creative_assets(tenant_id, id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS style_cards (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        visual_dna TEXT NOT NULL DEFAULT '',
+        copy_dna TEXT NOT NULL DEFAULT '',
+        prompt_guidance TEXT NOT NULL DEFAULT '',
+        negative_guidance TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','active','archived')),
+        confidence_score NUMERIC NOT NULL DEFAULT 0,
+        performance_score NUMERIC NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, id)
+      );
+
+      CREATE TABLE IF NOT EXISTS style_card_examples (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        style_card_id UUID NOT NULL,
+        creative_asset_id UUID NOT NULL,
+        role TEXT NOT NULL DEFAULT 'example' CHECK (role IN ('example','positive','negative','source')),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (tenant_id, style_card_id, creative_asset_id),
+        FOREIGN KEY (tenant_id, style_card_id) REFERENCES style_cards(tenant_id, id) ON DELETE CASCADE,
+        FOREIGN KEY (tenant_id, creative_asset_id) REFERENCES creative_assets(tenant_id, id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS style_card_source_analyses (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        style_card_id UUID NOT NULL,
+        creative_analysis_id UUID NOT NULL,
+        PRIMARY KEY (tenant_id, style_card_id, creative_analysis_id),
+        FOREIGN KEY (tenant_id, style_card_id) REFERENCES style_cards(tenant_id, id) ON DELETE CASCADE,
+        FOREIGN KEY (tenant_id, creative_analysis_id) REFERENCES creative_analyses(tenant_id, id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS market_pattern_notes (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        source_label TEXT NOT NULL,
+        pattern TEXT NOT NULL,
+        allowed_use TEXT NOT NULL DEFAULT 'abstract_only' CHECK (allowed_use = 'abstract_only'),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, id)
+      );
+
+      CREATE TABLE IF NOT EXISTS prompt_recipes (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        marketing_job_id TEXT,
+        brief JSONB NOT NULL DEFAULT '{}'::jsonb,
+        context_pack JSONB NOT NULL DEFAULT '{}'::jsonb,
+        compiled_prompt TEXT NOT NULL,
+        negative_prompt TEXT NOT NULL DEFAULT '',
+        model_used TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, id)
+      );
+
+      CREATE TABLE IF NOT EXISTS prompt_recipe_assets (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        prompt_recipe_id UUID NOT NULL,
+        creative_asset_id UUID NOT NULL,
+        selection_role TEXT NOT NULL DEFAULT 'example',
+        selection_reason TEXT NOT NULL DEFAULT '',
+        rank INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (tenant_id, prompt_recipe_id, creative_asset_id),
+        FOREIGN KEY (tenant_id, prompt_recipe_id) REFERENCES prompt_recipes(tenant_id, id) ON DELETE CASCADE,
+        FOREIGN KEY (tenant_id, creative_asset_id) REFERENCES creative_assets(tenant_id, id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS prompt_recipe_style_cards (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        prompt_recipe_id UUID NOT NULL,
+        style_card_id UUID NOT NULL,
+        selection_reason TEXT NOT NULL DEFAULT '',
+        rank INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (tenant_id, prompt_recipe_id, style_card_id),
+        FOREIGN KEY (tenant_id, prompt_recipe_id) REFERENCES prompt_recipes(tenant_id, id) ON DELETE CASCADE,
+        FOREIGN KEY (tenant_id, style_card_id) REFERENCES style_cards(tenant_id, id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS generated_assets (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        prompt_recipe_id UUID NOT NULL,
+        creative_asset_id UUID,
+        variant_kind TEXT NOT NULL DEFAULT 'memory_assisted' CHECK (variant_kind IN ('baseline','memory_assisted')),
+        prompt_text TEXT NOT NULL DEFAULT '',
+        learning_lifecycle TEXT NOT NULL DEFAULT 'suggested' CHECK (learning_lifecycle IN ('observed','analyzed','suggested','approved_for_generation','archived')),
+        review_status TEXT NOT NULL DEFAULT 'pending' CHECK (review_status IN ('pending','approved','rejected','changes_requested')),
+        review_notes JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, id),
+        FOREIGN KEY (tenant_id, prompt_recipe_id) REFERENCES prompt_recipes(tenant_id, id) ON DELETE CASCADE,
+        FOREIGN KEY (tenant_id, creative_asset_id) REFERENCES creative_assets(tenant_id, id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS campaign_learning_labels (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL,
+        label TEXT NOT NULL CHECK (label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected')),
+        prompt_recipe_id UUID,
+        generated_asset_id UUID,
+        note TEXT,
+        source TEXT NOT NULL DEFAULT 'operator',
+        confidence_basis TEXT NOT NULL DEFAULT 'manual_label' CHECK (confidence_basis IN ('manual_label','review_decision','performance_result')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        -- S4-6 (gap C4): the marketing review tray is the second writer of this
+        -- table. Its decisions reference a marketing job + a RUNTIME asset key
+        -- (e.g. 'img_1'), not a Creative Memory prompt_recipes/generated_assets
+        -- UUID, so they get their own untyped reference columns. Deliberately no
+        -- FK: the runtime asset key lives in a job document under DATA_ROOT, not
+        -- in a table, and job_id is TEXT with no rows of its own to point at.
+        marketing_job_id TEXT,
+        marketing_asset_id TEXT,
+        CHECK (prompt_recipe_id IS NOT NULL OR generated_asset_id IS NOT NULL OR marketing_job_id IS NOT NULL),
+        UNIQUE (tenant_id, id),
+        UNIQUE (tenant_id, idempotency_key),
+        FOREIGN KEY (tenant_id, prompt_recipe_id) REFERENCES prompt_recipes(tenant_id, id) ON DELETE CASCADE,
+        FOREIGN KEY (tenant_id, generated_asset_id) REFERENCES generated_assets(tenant_id, id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_status ON creative_assets (tenant_id, learning_lifecycle, usable_for_generation);
+      CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_source ON creative_assets (tenant_id, source_type, permission_scope);
+      CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_media ON creative_assets (tenant_id, media_type, aspect_ratio);
+      CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_checksum ON creative_assets (tenant_id, checksum);
+      CREATE INDEX IF NOT EXISTS idx_style_cards_tenant_status ON style_cards (tenant_id, status);
+      CREATE INDEX IF NOT EXISTS idx_prompt_recipes_tenant_job ON prompt_recipes (tenant_id, marketing_job_id);
+      CREATE INDEX IF NOT EXISTS idx_generated_assets_tenant_recipe ON generated_assets (tenant_id, prompt_recipe_id);
+      CREATE INDEX IF NOT EXISTS idx_campaign_learning_labels_tenant_label_created ON campaign_learning_labels (tenant_id, label, created_at DESC);
+
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS source_job_id TEXT;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS source_asset_id TEXT;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS served_asset_ref TEXT;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS storage_kind TEXT NOT NULL DEFAULT 'none';
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS storage_key TEXT;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS exact_image_text TEXT[] NOT NULL DEFAULT '{}';
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS usable_for_generation BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS learning_lifecycle TEXT NOT NULL DEFAULT 'observed';
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS variant_batch_id TEXT;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS variant_index INTEGER;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS width_px INTEGER;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS height_px INTEGER;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
+      ALTER TABLE prompt_recipes ADD COLUMN IF NOT EXISTS context_pack JSONB NOT NULL DEFAULT '{}'::jsonb;
+      ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS creative_asset_id UUID;
+      ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS variant_kind TEXT NOT NULL DEFAULT 'memory_assisted';
+      ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS prompt_text TEXT NOT NULL DEFAULT '';
+      SELECT pg_temp.ensure_check_constraint(
+        'creative_assets'::regclass, 'creative_assets_source_type_check',
+        'landing_page_screenshot',
+        $check$source_type IN ('owned_instagram','owned_facebook','owned_meta_ad','competitor_meta_ad','manual_upload','generated_by_aries','runtime_artifact','landing_page_screenshot')$check$
+      );
+      SELECT pg_temp.ensure_check_constraint(
+        'creative_assets'::regclass, 'creative_assets_permission_scope_check',
+        'licensed',
+        $check$permission_scope IN ('owned','public_ad_library','user_uploaded','generated','licensed')$check$
+      );
+      SELECT pg_temp.ensure_check_constraint(
+        'creative_assets'::regclass, 'creative_assets_exact_image_text_generation_check',
+        'exact_image_text',
+        $check$media_type <> 'image' OR usable_for_generation = FALSE OR learning_lifecycle <> 'approved_for_generation' OR array_length(exact_image_text, 1) IS NOT NULL$check$
+      );
+      SELECT pg_temp.ensure_check_constraint(
+        'creative_assets'::regclass, 'creative_assets_competitor_not_usable_check',
+        'public_ad_library',
+        $check$(source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library') OR usable_for_generation = FALSE$check$
+      );
+      SELECT pg_temp.ensure_check_constraint(
+        'campaign_learning_labels'::regclass, 'campaign_learning_labels_label_check',
+        'rejected',
+        $check$label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected')$check$
+      );
+      -- S4-6 (gap C4): widen an already-created table for the marketing-review
+      -- writer. Columns first, then the target CHECK — the constraint references
+      -- marketing_job_id, so it cannot be added before the column exists.
+      -- 'campaign_learning_labels_check' is the name Postgres auto-assigns to
+      -- this table's single unnamed table-level CHECK.
+      ALTER TABLE campaign_learning_labels ADD COLUMN IF NOT EXISTS marketing_job_id TEXT;
+      ALTER TABLE campaign_learning_labels ADD COLUMN IF NOT EXISTS marketing_asset_id TEXT;
+      SELECT pg_temp.ensure_check_constraint(
+        'campaign_learning_labels'::regclass, 'campaign_learning_labels_check',
+        'marketing_job_id',
+        $check$prompt_recipe_id IS NOT NULL OR generated_asset_id IS NOT NULL OR marketing_job_id IS NOT NULL$check$
+      );
+      -- Serves the marketing writer's idempotent re-read and any per-job audit.
+      CREATE INDEX IF NOT EXISTS idx_campaign_learning_labels_tenant_marketing_job
+        ON campaign_learning_labels (tenant_id, marketing_job_id)
+        WHERE marketing_job_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_assets_tenant_checksum_unique ON creative_assets (tenant_id, checksum) WHERE checksum IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_creative_assets_variant_batch ON creative_assets (tenant_id, variant_batch_id) WHERE variant_batch_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_style_cards_tenant_name_unique ON style_cards (tenant_id, name);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_market_pattern_notes_natural_unique ON market_pattern_notes (tenant_id, source_label, pattern);
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        email TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ,
+        attempts INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      -- Add attempts column to existing deployments that predate brute-force
+      -- protection. ADD COLUMN IF NOT EXISTS is a no-op when the column
+      -- already exists, so this is safe to re-run.
+      ALTER TABLE password_resets
+        ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;
+
+      CREATE INDEX IF NOT EXISTS idx_password_resets_email_created
+        ON password_resets (email, created_at DESC);
+    `);
+
+    await client.query(`
+      -- Workspace member invitations. An admin invites a teammate by email +
+      -- role: a pending users row is created (password_hash = 'invited_pending')
+      -- plus a row here holding a hashed, single-use token. The teammate clicks
+      -- the emailed link, sets a password, and accepted_at is stamped. Tokens
+      -- are stored hashed (sha256) like password_resets. ON DELETE CASCADE means
+      -- removing the member clears their outstanding invitations.
+      CREATE TABLE IF NOT EXISTS workspace_invitations (
+        id BIGSERIAL PRIMARY KEY,
+        organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        invited_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        accepted_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_invitations_token_hash
+        ON workspace_invitations (token_hash);
+
+      CREATE INDEX IF NOT EXISTS idx_workspace_invitations_org_user
+        ON workspace_invitations (organization_id, user_id);
+    `);
+
+    await client.query(`
+      -- Posts table columns for weekly social content.
+      -- NOTE: 'caption' is the canonical post-body column. Prod's posts table
+      -- has 'caption' (NOT NULL) and no 'content' column; init-db.js previously
+      -- declared 'content' and drifted from prod. The drift origin is unknown
+      -- (no .sql migration performs a content->caption rename). 'caption' is
+      -- authoritative — keep all call sites on it.
+      CREATE TABLE IF NOT EXISTS posts (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        caption TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      ALTER TABLE posts
+        ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
+
+      ALTER TABLE posts
+        ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
+
+      ALTER TABLE posts
+        ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
+
+      ALTER TABLE posts
+        ADD COLUMN IF NOT EXISTS published_status TEXT DEFAULT 'draft' CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back'));
+
+      -- 'expired' is the terminal state the draft-expiry sweep
+      -- (scripts/automations/draft-expiry-sweep-worker.ts) writes to a stranded
+      -- pre-publish post: one that never reached the publish queue and is older
+      -- than the age window. It removes the post from the approval/backlog trays
+      -- without publishing it (stale content must not go out late). The catalog
+      -- guard widens old databases once and is a no-op on an already-current DB.
+      SELECT pg_temp.ensure_check_constraint(
+        'posts'::regclass, 'posts_published_status_check', 'expired',
+        $check$published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','unverified','expired')$check$
+      );
+
+      -- Columns the prod posts table carries that init-db.js never declared.
+      -- A fresh DB from this script previously drifted from prod, missing
+      -- job_id (the marketing-job link used by resolveMediaUrls and the
+      -- scheduled-dispatch path), the per-post media/creative columns, the
+      -- hermes_run_id provenance link, and the legacy 'status' column.
+      -- Defaults and NOT NULL mirror prod exactly (information_schema diff).
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS job_id TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'image';
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_urls TEXT[] NOT NULL DEFAULT '{}';
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS hermes_run_id TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS creative_asset_ids TEXT[] NOT NULL DEFAULT '{}';
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft';
+      -- Keep the legacy mirror column's allowed values in lockstep with
+      -- published_status: the draft-expiry sweep writes BOTH to 'expired' so
+      -- they never diverge.
+      SELECT pg_temp.ensure_check_constraint(
+        'posts'::regclass, 'posts_status_check', 'expired',
+        $check$status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','expired')$check$
+      );
+
+      -- When the draft-expiry sweep expires a stranded post it stamps
+      -- expired_at = now() for audit/observability (distinct from updated_at,
+      -- which many paths touch). NULL on every non-expired post.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ;
+
+      -- Surface axis (feed|story|reel), orthogonal to media_type (image|video).
+      -- Stories can be image or video; reels are always video; feed can be
+      -- either. See migrations/20260531120000_posts_surface.sql.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS surface TEXT NOT NULL DEFAULT 'feed';
+      SELECT pg_temp.ensure_check_constraint(
+        'posts'::regclass, 'posts_surface_check', 'reel',
+        $check$surface IN ('feed','story','reel')$check$
+      );
+
+      -- Generation-time visual-style lens stamped on synthesized posts so a later
+      -- operator edit (regenerate/delete/review-reject) has a concrete
+      -- (dimension,value) to mark approved/rejected with no per-edit LLM. Nullable
+      -- + no default: a pre-stamp/legacy post stays NULL and is skipped by the
+      -- taste producers. See migrations/20260609000000_marketing_taste_tenant_scoped.sql.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS style_dimension TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS style_value TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS width_px INTEGER;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS height_px INTEGER;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
+
+      -- Vision QA runs table for brand compliance checks
+      CREATE TABLE IF NOT EXISTS vision_qa_runs (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        post_id BIGINT,
+        creative_id BIGINT,
+        attempt_number INTEGER NOT NULL DEFAULT 1,
+        brand_color_match_score NUMERIC,
+        text_legibility_score NUMERIC,
+        forbidden_pattern_hits INTEGER,
+        brand_violation_score NUMERIC,
+        verdict TEXT CHECK (verdict IN ('pass','fail','operator_override')),
+        model_version TEXT,
+        raw_model_output JSONB,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+
+      -- Scheduled posts table for publication scheduling
+      CREATE TABLE IF NOT EXISTS scheduled_posts (
+        id BIGSERIAL PRIMARY KEY,
+        post_id BIGINT UNIQUE,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        scheduled_for TIMESTAMPTZ NOT NULL,
+        target_platforms TEXT[] NOT NULL DEFAULT '{}',
+        updated_at TIMESTAMPTZ DEFAULT now()
+      );
+
+      -- OAuth callback tokens for secure state management
+      CREATE TABLE IF NOT EXISTS oauth_callback_tokens (
+        token_hash CHAR(64) PRIMARY KEY,
+        aries_run_id TEXT NOT NULL,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        issued_at TIMESTAMPTZ DEFAULT now(),
+        consumed_at TIMESTAMPTZ
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_oauth_callback_tokens_aries_run_id ON oauth_callback_tokens(aries_run_id);
+
+      -- Add superseded_by column to creative_assets for regeneration tracking
+      ALTER TABLE creative_assets
+        ADD COLUMN IF NOT EXISTS superseded_by BIGINT;
+
+      -- T15: orphan retention for upload-replace. When an upload-replace
+      -- supersedes a previous creative the previous row is marked
+      -- orphaned_at = now(); scripts/gc-orphan-uploads.ts deletes assets
+      -- whose orphaned_at is older than 24h.
+      ALTER TABLE creative_assets
+        ADD COLUMN IF NOT EXISTS orphaned_at TIMESTAMPTZ;
+
+      -- Backfill columns that may be missing on databases provisioned before
+      -- these tables got their full schemas. CREATE TABLE IF NOT EXISTS
+      -- above is a no-op when the table already exists, so older deployments
+      -- end up with stub schemas missing the columns the CREATE INDEX below
+      -- requires. ADD COLUMN IF NOT EXISTS is idempotent on fresh tables.
+      -- Without these, init-db.js crashes at boot with
+      -- "error: column post_id does not exist" and the container restarts
+      -- forever (observed: PR #297 and PR #298 prod deploys, 2026-05-12).
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS post_id BIGINT;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS creative_id BIGINT;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS attempt_number INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS brand_color_match_score NUMERIC;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS text_legibility_score NUMERIC;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS forbidden_pattern_hits INTEGER;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS brand_violation_score NUMERIC;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS verdict TEXT;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS model_version TEXT;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS raw_model_output JSONB;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS post_id BIGINT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS target_platforms TEXT[] NOT NULL DEFAULT '{}';
+      -- One-off event campaigns set this to the UTC instant when publishing must stop
+      -- (tenant-local end-of-day, converted by the orchestrator at submit time). NULL means
+      -- "no end date" -- the legacy weekly_social_content behaviour. The scheduled-posts
+      -- worker filters claim-time on (campaign_end_date IS NULL OR campaign_end_date >= NOW()).
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS campaign_end_date TIMESTAMPTZ;
+      -- Mirror surface + media_type onto scheduled_posts so the worker dispatch
+      -- path forwards the publish shape without JOINing posts at claim time.
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS surface TEXT NOT NULL DEFAULT 'feed';
+      SELECT pg_temp.ensure_check_constraint(
+        'scheduled_posts'::regclass, 'scheduled_posts_surface_check', 'reel',
+        $check$surface IN ('feed','story','reel')$check$
+      );
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'image';
+      SELECT pg_temp.ensure_check_constraint(
+        'scheduled_posts'::regclass, 'scheduled_posts_media_type_check', 'video',
+        $check$media_type IN ('image','video')$check$
+      );
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS width_px INTEGER;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS height_px INTEGER;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
+
+      CREATE INDEX IF NOT EXISTS idx_posts_tenant_created ON posts (tenant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_vision_qa_runs_tenant_post ON vision_qa_runs (tenant_id, post_id);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_posts_tenant_scheduled ON scheduled_posts (tenant_id, scheduled_for);
+      CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_orphaned_at ON creative_assets (tenant_id, orphaned_at) WHERE orphaned_at IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS marketing_operator_creative_preferences (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        always_match_creative_voice BOOLEAN NOT NULL DEFAULT FALSE,
+        voice_style_label TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, user_id)
+      );
+
+      -- Onboarding first-post variant-board taste learning. Mirrored in
+      -- migrations/20260602000000_marketing_taste_profile.sql (run manually on
+      -- existing DBs). dimensions is an opaque jsonb map of dimension ->
+      -- per-value counters; confidence + 5%/week decay are computed at READ time
+      -- in backend/marketing/taste-profile-store.ts. tenant_id/user_id INTEGER
+      -- match organizations.id/users.id (int4) -- do not use BIGINT.
+      -- user_id is NULLABLE: a real SQL NULL identifies the tenant-scoped row used
+      -- by the userless weekly run (NOT a sentinel int — still an FK to users).
+      -- Uniqueness comes from the two indexes added below, not a PK, so a
+      -- (tenant, NULL) row and per-user rows can coexist. See
+      -- migrations/20260609000000_marketing_taste_tenant_scoped.sql.
+      CREATE TABLE IF NOT EXISTS marketing_taste_profile (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        dimensions JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      -- Append-only event log: one row per pick/rate/edit signal on a variant
+      -- (onboarding) or per-tenant edit signal (weekly run). user_id /
+      -- variant_batch_id / variant_id are NULLABLE so a userless/non-variant
+      -- signal row can be appended.
+      CREATE TABLE IF NOT EXISTS marketing_taste_signal (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL,
+        variant_batch_id TEXT,
+        slot_index INT NOT NULL DEFAULT 0,
+        variant_id TEXT,
+        picked BOOLEAN NOT NULL DEFAULT FALSE,
+        rating INT,
+        edit_ops JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT marketing_taste_signal_rating_range CHECK (rating IS NULL OR rating BETWEEN 1 AND 5)
+      );
+      CREATE INDEX IF NOT EXISTS idx_marketing_taste_signal_tenant_user ON marketing_taste_signal (tenant_id, user_id);
+      CREATE INDEX IF NOT EXISTS idx_marketing_taste_signal_batch ON marketing_taste_signal (variant_batch_id);
+      CREATE INDEX IF NOT EXISTS idx_marketing_taste_signal_tenant_user_created ON marketing_taste_signal (tenant_id, user_id, created_at DESC);
+
+      -- PR2 tenant-scoped relaxation (reaches an EXISTING prod table, which the
+      -- CREATE TABLE IF NOT EXISTS above does not). Idempotent + re-runnable on
+      -- every container start. Drop the (tenant_id,user_id) PK so a tenant-scoped
+      -- (user_id NULL) row is allowed; re-establish uniqueness via two indexes:
+      --   * (tenant_id, user_id) keeps the onboarding ON CONFLICT (tenant_id,user_id) upsert working;
+      --   * partial (tenant_id) WHERE user_id IS NULL enforces one tenant row and
+      --     is the inference target for the weekly upsert.
+      ALTER TABLE marketing_taste_profile DROP CONSTRAINT IF EXISTS marketing_taste_profile_pkey;
+      ALTER TABLE marketing_taste_profile ALTER COLUMN user_id DROP NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_marketing_taste_profile_tenant_user
+        ON marketing_taste_profile (tenant_id, user_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_marketing_taste_profile_tenant_only
+        ON marketing_taste_profile (tenant_id) WHERE user_id IS NULL;
+      ALTER TABLE marketing_taste_signal ALTER COLUMN user_id DROP NOT NULL;
+      ALTER TABLE marketing_taste_signal ALTER COLUMN variant_batch_id DROP NOT NULL;
+      ALTER TABLE marketing_taste_signal ALTER COLUMN variant_id DROP NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS honcho_write_idempotency_keys (
+        key TEXT PRIMARY KEY,
+        written_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      -- Mutable operational state for performance-write claims. Successful
+      -- writes append their key to honcho_write_idempotency_keys; failures may
+      -- release this lease and crash orphans may take it over after one hour.
+      -- Keeping leases outside honcho_* preserves the PRD's append-only memory
+      -- contract without losing crash recovery.
+      CREATE TABLE IF NOT EXISTS memory_write_claim_leases (
+        key TEXT PRIMARY KEY,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      -- Worker-side ledger for the honcho-performance-worker (delayed real-Meta
+      -- performance -> Honcho memory). Distinct from honcho_write_idempotency_keys
+      -- (the Honcho-side claim inside recordPerformanceEvent): this lets the
+      -- due-posts query cheaply skip already-written (job_id, platform, metric_day)
+      -- without re-driving the Honcho idempotency claim every 30-min tick.
+      -- tenant_id INTEGER matches organizations.id (int4) -- do not use BIGINT.
+      -- metric_day is the post's UTC publish day (the #513 metric day), so
+      -- 24h/72h/7d/30d re-polls of the same metric-day collapse to one ledger row.
+      CREATE TABLE IF NOT EXISTS honcho_perf_writes (
+        tenant_id  INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        job_id     TEXT    NOT NULL,
+        platform   TEXT    NOT NULL,
+        metric_day DATE    NOT NULL,
+        written_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, job_id, platform, metric_day)
+      );
+
+      -- Hackathon landing page registrations. Standalone table -- not tied to
+      -- organizations or users because the /hackathon landing page is public
+      -- and most registrants will not have Aries accounts. Email is unique
+      -- (case-insensitive) so a refresh-and-resubmit just upserts the same
+      -- record; double-registration is silently idempotent rather than a 409.
+      CREATE TABLE IF NOT EXISTS hackathon_registrations (
+        id BIGSERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        motivation TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        registered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_hackathon_registrations_email_lower
+        ON hackathon_registrations (lower(email));
+
+      CREATE TABLE IF NOT EXISTS partner_attribution_outbox (
+        id BIGSERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        ref_code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        company TEXT,
+        domain TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INT NOT NULL DEFAULT 0,
+        last_error TEXT,
+        next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        delivered_at TIMESTAMPTZ,
+        CONSTRAINT partner_attribution_outbox_status_valid CHECK (status IN ('pending','delivered','dead'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_partner_attribution_outbox_pending
+        ON partner_attribution_outbox (next_attempt_at)
+        WHERE status = 'pending';
+
+      -- PR #327: posts idempotency_key for double-publish prevention.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS platform TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_tenant_platform_idempotency_key
+        ON posts (tenant_id, platform, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_posts_tenant_platform ON posts (tenant_id, platform);
+
+      -- resolveMediaUrls and the scheduled-dispatch path look posts up by
+      -- (tenant_id, job_id) to scope creative assets; index the link.
+      CREATE INDEX IF NOT EXISTS idx_posts_tenant_job ON posts (tenant_id, job_id) WHERE job_id IS NOT NULL;
+
+      -- Draft-expiry sweep candidate scan: pre-publish posts ordered by
+      -- updated_at. Partial index keeps the sweep's COUNT/SELECT cheap even as
+      -- the posts table grows, since the vast majority of rows are terminal
+      -- (published/scheduled/failed/expired) and fall outside the index. Keyed
+      -- on the canonical published_status only — matches the sweep predicate,
+      -- which trusts published_status (not the legacy status mirror).
+      CREATE INDEX IF NOT EXISTS idx_posts_draft_expiry
+        ON posts (updated_at)
+        WHERE published_status IN ('draft','in_review','approved');
+
+      -- Scheduled posts worker: dispatch status tracking columns.
+      -- 'in_flight' is a non-terminal claimed state: the worker commits it
+      -- before the network publish so a crash mid-publish leaves a reclaimable
+      -- row rather than a false 'dispatched'. The parent dispatch_status is a
+      -- rollup derived from the per-platform scheduled_post_dispatches rows.
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
+      DO $constraint$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+           WHERE conrelid = 'scheduled_posts'::regclass
+             AND conname = 'scheduled_posts_dispatch_status_check'
+             AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
+        ) THEN
+          ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_dispatch_status_check;
+          ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_dispatch_status_check
+            CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
+        END IF;
+      END $constraint$;
+      ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS dispatch_attempt_token TEXT;
+      ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ;
+      -- Additive provider-submission fence. This must exist during fresh init
+      -- and every upgrade before the compatible app starts. Legacy data is
+      -- quarantined separately after app health by the deploy cutover runner.
+      ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS dispatch_started_at TIMESTAMPTZ;
+      -- Backfill a legacy owner identity before the worker restarts. The next
+      -- stale reclaim replaces this token, while dispatch_claimed_at preserves
+      -- the old updated_at-based reclaim age across rollout.
+      UPDATE scheduled_posts
+         SET dispatch_attempt_token = COALESCE(
+               dispatch_attempt_token,
+               md5(random()::text || clock_timestamp()::text || id::text)
+             ),
+             dispatch_claimed_at = COALESCE(dispatch_claimed_at, updated_at)
+       WHERE dispatch_status = 'in_flight'
+         AND (dispatch_attempt_token IS NULL OR dispatch_claimed_at IS NULL);
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_at TIMESTAMPTZ;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS failure_class TEXT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
+      -- Retry backoff marker: a retryable dispatch failure sets this into the
+      -- future and the worker's due-rows scan skips the row until it passes.
+      -- NULL = no backoff (legacy behavior). Prevents the 60s-cadence retry
+      -- hammering that kept Facebook's rate limit (error 368) tripped for days
+      -- (2026-07-13 incident).
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ;
+      CREATE INDEX IF NOT EXISTS idx_scheduled_posts_pending ON scheduled_posts (scheduled_for) WHERE dispatch_status = 'pending';
+      -- The reclaim branch of the worker's due-rows scan filters on
+      -- dispatch_status = 'in_flight'; index it the same way as 'pending'.
+      CREATE INDEX IF NOT EXISTS idx_scheduled_posts_in_flight ON scheduled_posts (scheduled_for) WHERE dispatch_status = 'in_flight';
+
+      -- Per-platform dispatch state. A scheduled_posts row targets an array of
+      -- platforms; a cross-post that succeeds on Facebook and fails on
+      -- Instagram cannot be told the truth by one scalar dispatch_status.
+      -- Each (scheduled_post, platform) pair gets its own row; the parent
+      -- scheduled_posts.dispatch_status is the rollup (all dispatched ->
+      -- dispatched, any failed -> failed, any still pending/in_flight ->
+      -- the lower state).
+      CREATE TABLE IF NOT EXISTS scheduled_post_dispatches (
+        id BIGSERIAL PRIMARY KEY,
+        scheduled_post_id BIGINT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation')),
+        platform_post_id TEXT,
+        dispatched_at TIMESTAMPTZ,
+        error_at TIMESTAMPTZ,
+        error_message TEXT,
+        failure_class TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        dead_lettered_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (scheduled_post_id, platform)
+      );
+      -- AA-99: preserve every successful provider id on its child row. The
+      -- ALTER keeps init-db idempotent for databases created before this field
+      -- was part of the CREATE TABLE definition.
+      ALTER TABLE scheduled_post_dispatches
+        ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS failure_class TEXT;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
+      DO $constraint$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+           WHERE conrelid = 'scheduled_post_dispatches'::regclass
+             AND conname = 'scheduled_post_dispatches_status_check'
+             AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
+        ) THEN
+          ALTER TABLE scheduled_post_dispatches DROP CONSTRAINT IF EXISTS scheduled_post_dispatches_status_check;
+          ALTER TABLE scheduled_post_dispatches ADD CONSTRAINT scheduled_post_dispatches_status_check
+            CHECK (status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
+        END IF;
+      END $constraint$;
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_parent
+        ON scheduled_post_dispatches (scheduled_post_id);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_platform_post_id
+        ON scheduled_post_dispatches (platform_post_id, platform)
+        WHERE platform_post_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_dead_letter
+        ON scheduled_post_dispatches (dead_lettered_at DESC)
+        WHERE status = 'dead_letter';
+
+      -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
+      -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop
+      -- retries before any business logic runs. Optional 30-day retention
+      -- prune is scheduled separately.
+      CREATE TABLE IF NOT EXISTS slack_event_ids (
+        event_id TEXT PRIMARY KEY,
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_slack_event_ids_received_at
+        ON slack_event_ids (received_at);
+
+      -- Phase 4 PR2: OUTBOUND Slack notification dedupe. The marketing callback
+      -- is re-delivered by the reconciler under a different event_id than the
+      -- original poll-bridge delivery, so notifications dedupe on a STABLE
+      -- identity (e.g. approval:<jobId>:<stage>) via INSERT ON CONFLICT DO
+      -- NOTHING — only the first delivery for a given key pings the channel.
+      CREATE TABLE IF NOT EXISTS slack_notifications (
+        dedup_key TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        tenant_id INTEGER,
+        marketing_job_id TEXT,
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_slack_notifications_sent_at
+        ON slack_notifications (sent_at);
+    `);
+
+    // ─── Auto-publish opt-in ─────────────────────────────────────────────────────
+    // One row per tenant that opts into autonomous DELIVERY. Auto-schedule stays
+    // on for everyone (the calendar populates from the AI's timing
+    // recommendation); this table decides whether scheduled-posts-worker is
+    // allowed to actually dispatch a due row to the provider, or whether it is
+    // held for a human to publish. Absence == disabled, so an unseeded tenant is
+    // held rather than published.
+    //
+    // Gated fleet-wide by ARIES_AUTO_PUBLISH_GATE_ENABLED — with that OFF this
+    // table is inert and every row dispatches exactly as before.
+    // Migration of record: migrations/20260812000000_marketing_auto_publish_settings.sql
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS marketing_auto_publish_settings (
+        tenant_id          INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        enabled            BOOLEAN NOT NULL DEFAULT false,
+        updated_by_user_id INTEGER,
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_marketing_auto_publish_settings_enabled
+        ON marketing_auto_publish_settings (tenant_id)
+        WHERE enabled;
+    `);
+
+    // ─── Weekly trigger schedule ─────────────────────────────────────────────────
+    // One row per tenant that opts into the weekly-content cadence. The
+    // weekly-job-trigger-worker (scripts/automations/weekly-job-trigger-worker.ts)
+    // atomically claims due rows and starts a weekly_social_content job for each.
+    // Mirrors the scheduled-posts-worker pattern but UPSTREAM: it fills the
+    // generate side of the pipeline so a human can review + approve, instead of
+    // requiring the unsafe ARIES_AUTO_APPROVE_MARKETING_PIPELINE flag.
+    //
+    // last_triggered_at is the claim marker — the worker's conditional UPDATE
+    // (last_triggered_at < window-start) is what makes "one job per tenant per
+    // cadence window" safe across concurrent ticks AND multiple containers.
+    // last_attempt_at / last_success_at split lets a failed submit be loud (an
+    // attempt with no matching success = a missed week) without losing the retry.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS marketing_schedule (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        cadence TEXT NOT NULL DEFAULT 'weekly' CHECK (cadence IN ('weekly')),
+        day_of_week INTEGER NOT NULL DEFAULT 1 CHECK (day_of_week BETWEEN 0 AND 6),
+        hour INTEGER NOT NULL DEFAULT 9 CHECK (hour BETWEEN 0 AND 23),
+        timezone TEXT,
+        enabled BOOLEAN NOT NULL DEFAULT false,
+        last_triggered_at TIMESTAMPTZ,
+        last_attempt_at TIMESTAMPTZ,
+        last_success_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_marketing_schedule_enabled
+        ON marketing_schedule (enabled) WHERE enabled;
+
+      -- In-flight claim marker for the weekly trigger (2026-07-20 incident: a
+      -- POST that hung and died mid-flight left last_triggered_at stamped and
+      -- silently skipped the whole week). Written atomically WITH the claim
+      -- (one CTE statement in the worker), deleted on every concluded outcome
+      -- (success / gate-skip / failure-revert); a row older than the stale
+      -- window is a stranded attempt the worker's heal arm reverts. The worker
+      -- also self-provisions this table at startup (ENSURE_CLAIMS_TABLE_SQL in
+      -- scripts/automations/weekly-job-trigger-worker.ts — keep in sync) since
+      -- prod may run with ARIES_SKIP_DB_INIT=1.
+      CREATE TABLE IF NOT EXISTS marketing_weekly_claims (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        prior_last_triggered_at TIMESTAMPTZ
+      );
+    `);
+
+    // ─── AI-derived posting times ────────────────────────────────────────────────
+    // One row per (tenant, platform): the AI-derived time-of-day (and ranked
+    // days-of-week) that tenant's posts should go live on that platform.
+    // Written by backend/marketing/posting-time-advisor.ts every time content
+    // generation starts (ARIES_AI_POSTING_TIMES_ENABLED): from the tenant's own
+    // insights engagement once enough posts have metrics (source='analytics'),
+    // else from a Hermes research run over the business profile's competitor
+    // (source='competitor'). Read fail-open by the auto-schedule slot
+    // computation, which falls back to PLATFORM_POSTING_DEFAULTS when a row is
+    // absent. This complements marketing_schedule (WHEN weekly content is
+    // GENERATED); this table is WHEN individual posts PUBLISH.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS marketing_posting_times (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL,
+        hour INTEGER NOT NULL CHECK (hour BETWEEN 0 AND 23),
+        minute INTEGER NOT NULL DEFAULT 0 CHECK (minute BETWEEN 0 AND 59),
+        days JSONB NOT NULL DEFAULT '[]',
+        source TEXT NOT NULL CHECK (source IN ('analytics', 'competitor')),
+        sample_size INTEGER,
+        rationale TEXT,
+        derived_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, platform)
+      );
+
+      -- Cross-process derivation claim (mirrors the marketing_schedule
+      -- conditional-claim idiom): one row per tenant, atomically claimed via
+      -- INSERT ... ON CONFLICT DO UPDATE ... WHERE claimed_at is older than the
+      -- claim window, so concurrent derivations across cluster workers collapse
+      -- to one. Released (DELETE) unless the competitor research leg failed
+      -- transiently — then the claim is retained as a failure backoff (a
+      -- Hermes outage cannot re-fire a doomed research run on every generate
+      -- click, even when other platforms succeeded via analytics).
+      -- TTL-skipped attempts never touch this table.
+      CREATE TABLE IF NOT EXISTS marketing_posting_time_claims (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    // ─── Insights module ────────────────────────────────────────────────────────
+    // Platform-agnostic analytics tables. Every table is prefixed insights_ so
+    // ownership is obvious at a glance and future features can't collide.
+    await client.query(`
+      -- One row per connected platform account on a tenant
+      -- (e.g. one YouTube channel, one Instagram account).
+      CREATE TABLE IF NOT EXISTS insights_accounts (
+        id                     BIGSERIAL PRIMARY KEY,
+        tenant_id              INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        platform               TEXT NOT NULL,
+        external_account_id    TEXT NOT NULL,
+        display_name           TEXT,
+        connected_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_sync_at           TIMESTAMPTZ,
+        backfill_completed_at  TIMESTAMPTZ,
+        platform_data          JSONB NOT NULL DEFAULT '{}',
+        UNIQUE (tenant_id, platform, external_account_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_accounts_tenant_platform
+        ON insights_accounts (tenant_id, platform);
+
+      -- Account-level self-heal (audit item 5b). Mirrored verbatim in
+      -- migrations/20260810000000_insights_object_health.sql.
+      --
+      -- connected_accounts is UNIQUE (tenant_id, platform), so reconnecting to
+      -- a DIFFERENT Page/IG id rewrites that row while the bridge inserts a NEW
+      -- insights_accounts row (UNIQUE on tenant_id, platform,
+      -- external_account_id) — and nothing has ever deleted from
+      -- insights_accounts, so the old row keeps syncing a dead page id forever.
+      -- A full disconnect DELETES the connected_accounts row and orphans the
+      -- insights row the same way. ensure-account.ts sweeps both cases into
+      -- disabled_at; every production reader filters disabled_at IS NULL.
+      -- Fully reversible — the next tick after a reconnect clears both columns.
+      ALTER TABLE insights_accounts ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+      ALTER TABLE insights_accounts ADD COLUMN IF NOT EXISTS disabled_reason TEXT;
+
+      -- One row per piece of content fetched from a platform
+      -- (YouTube video, Instagram reel, etc.).
+      -- Named insights_posts to avoid collision with the existing posts table
+      -- used by the weekly social-content feature.
+      CREATE TABLE IF NOT EXISTS insights_posts (
+        id                       BIGSERIAL PRIMARY KEY,
+        tenant_id                INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        account_id               BIGINT NOT NULL REFERENCES insights_accounts(id) ON DELETE CASCADE,
+        platform                 TEXT NOT NULL,
+        external_post_id         TEXT NOT NULL,
+        published_at             TIMESTAMPTZ NOT NULL,
+        media_type               TEXT NOT NULL,  -- 'video'|'short'|'image'|'carousel'|'reel'|'story'|'text'|'live'
+        title                    TEXT,
+        caption                  TEXT,           -- YT description and IG/FB caption both land here
+        permalink                TEXT,
+        duration_seconds         INT,            -- null when not applicable
+        platform_data            JSONB NOT NULL DEFAULT '{}',
+        fetched_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_metrics_fetched_at  TIMESTAMPTZ,   -- drives post-publish checkpoint sync
+        UNIQUE (tenant_id, platform, external_post_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_tenant_platform_published
+        ON insights_posts (tenant_id, platform, published_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_tenant_published
+        ON insights_posts (tenant_id, published_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_tenant_platform_metrics
+        ON insights_posts (tenant_id, platform, last_metrics_fetched_at);
+
+      -- Daily time-series for account-level metrics (channel views, followers, etc.).
+      -- reach is NULL for platforms without a unique-viewer concept (e.g. YouTube).
+      -- saves is NULL for platforms that don't expose saves.
+      -- raw_source records adapter + mapping version for auditability.
+      CREATE TABLE IF NOT EXISTS insights_account_metrics_daily (
+        tenant_id              INTEGER NOT NULL,
+        account_id             BIGINT NOT NULL REFERENCES insights_accounts(id) ON DELETE CASCADE,
+        platform               TEXT NOT NULL,
+        date                   DATE NOT NULL,
+        views                  BIGINT,
+        reach                  BIGINT,
+        watch_time_minutes     BIGINT,
+        followers              BIGINT,
+        followers_delta        INT,
+        profile_visits         INT,
+        likes                  INT,
+        comments_count         INT,
+        shares                 INT,
+        saves                  INT,
+        -- Authoritative aggregate account engagement for the day (e.g. Facebook
+        -- page_post_engagements) for platforms that report a single engagement
+        -- figure instead of a like/comment/share breakdown. NULL = not exposed;
+        -- read-api prefers this for the headline, falling back to
+        -- likes+comments_count+shares.
+        engagement             BIGINT,
+        platform_data          JSONB NOT NULL DEFAULT '{}',
+        raw_source             JSONB NOT NULL,
+        PRIMARY KEY (tenant_id, account_id, date)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_account_metrics_daily_tenant_platform_date
+        ON insights_account_metrics_daily (tenant_id, platform, date DESC);
+      -- Backfill for tables created before the engagement column existed.
+      ALTER TABLE insights_account_metrics_daily ADD COLUMN IF NOT EXISTS engagement BIGINT;
+
+      -- Daily time-series for post-level metrics.
+      CREATE TABLE IF NOT EXISTS insights_post_metrics_daily (
+        tenant_id              INTEGER NOT NULL,
+        post_id                BIGINT NOT NULL REFERENCES insights_posts(id) ON DELETE CASCADE,
+        platform               TEXT NOT NULL,
+        date                   DATE NOT NULL,
+        views                  BIGINT,
+        reach                  BIGINT,
+        watch_time_minutes     BIGINT,
+        avg_view_duration_sec  INT,
+        avg_view_percentage    NUMERIC(5,2),
+        likes                  INT,
+        comments_count         INT,
+        shares                 INT,
+        saves                  INT,
+        platform_data          JSONB NOT NULL DEFAULT '{}',
+        raw_source             JSONB NOT NULL,
+        PRIMARY KEY (tenant_id, post_id, date)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_post_metrics_daily_tenant_platform_date
+        ON insights_post_metrics_daily (tenant_id, platform, date DESC);
+
+      -- Weekly engagement summaries. The tenant/week primary key makes the
+      -- scheduled materialization safely rerunnable. Mirrors
+      -- migrations/20260819203008_weekly_engagement_trends.sql.
+      CREATE TABLE IF NOT EXISTS insights_engagement_trends_weekly (
+        tenant_id            INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        week_start           DATE NOT NULL,
+        current_post_count   INTEGER NOT NULL CHECK (current_post_count >= 0),
+        previous_post_count  INTEGER NOT NULL CHECK (previous_post_count >= 0),
+        current_average      NUMERIC(14,4),
+        previous_average     NUMERIC(14,4),
+        change_percent       NUMERIC(12,4),
+        direction            TEXT NOT NULL CHECK (direction IN ('upward', 'downward', 'flat', 'insufficient_data')),
+        computed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, week_start)
+      );
+
+      -- Raw comments fetched from platforms.
+      CREATE TABLE IF NOT EXISTS insights_comments (
+        id                  BIGSERIAL PRIMARY KEY,
+        tenant_id           INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        post_id             BIGINT NOT NULL REFERENCES insights_posts(id) ON DELETE CASCADE,
+        platform            TEXT NOT NULL,
+        external_comment_id TEXT NOT NULL,
+        received_at         TIMESTAMPTZ NOT NULL,
+        author_handle       TEXT,
+        body_text           TEXT NOT NULL,
+        is_replied          BOOLEAN NOT NULL DEFAULT false,
+        platform_reply_id   TEXT,
+        replied_at          TIMESTAMPTZ,
+        platform_data       JSONB NOT NULL DEFAULT '{}',
+        UNIQUE (tenant_id, platform, external_comment_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_comments_tenant_platform_received
+        ON insights_comments (tenant_id, platform, received_at DESC);
+
+      -- LLM sentiment + lead classification results per comment.
+      CREATE TABLE IF NOT EXISTS insights_comment_classifications (
+        comment_id         BIGINT PRIMARY KEY REFERENCES insights_comments(id) ON DELETE CASCADE,
+        tenant_id          INTEGER NOT NULL,
+        sentiment          TEXT,    -- 'positive'|'neutral'|'negative'
+        is_lead            BOOLEAN,
+        category           TEXT,    -- 'question'|'compliment'|'complaint'|'spam'|'other'
+        classifier_version TEXT NOT NULL,
+        cost_cents         NUMERIC(10,4) NOT NULL,
+        classified_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      -- S4-3 (gap C5): serves the re-classify sweep's predicate
+      -- (classifier_version IS DISTINCT FROM <current>), which the dispatcher
+      -- runs once per account per tick. Without it that predicate seq-scans the
+      -- whole table on every tick of every account. comment_id stays the PRIMARY
+      -- KEY -- one row per comment, holding its CURRENT label -- because nine
+      -- reader joins across five builders join plainly on comment_id with no
+      -- version predicate; a per-version row would silently double-count them.
+      -- Mirrors migrations/20260804000000_comment_classifier_version_index.sql.
+      CREATE INDEX IF NOT EXISTS idx_insights_comment_classifications_version
+        ON insights_comment_classifications (classifier_version);
+
+      -- Demographics snapshots. demographics is NULL when unavailable;
+      -- unavailable_reason explains why (e.g. 'below_threshold', 'permission_missing').
+      CREATE TABLE IF NOT EXISTS insights_audience_snapshots (
+        tenant_id          INTEGER NOT NULL,
+        account_id         BIGINT NOT NULL REFERENCES insights_accounts(id) ON DELETE CASCADE,
+        platform           TEXT NOT NULL,
+        snapshot_date      DATE NOT NULL,
+        demographics       JSONB,
+        unavailable_reason TEXT,
+        raw_source         JSONB NOT NULL,
+        PRIMARY KEY (tenant_id, account_id, snapshot_date)
+      );
+
+      -- LLM-generated narrative copy for each dashboard section.
+      -- input_hash dedupes: if the underlying numbers haven't changed,
+      -- no new LLM call is needed. UNIQUE on (tenant, period, platform, section_key)
+      -- so upsert is safe.
+      CREATE TABLE IF NOT EXISTS insights_narratives (
+        id              BIGSERIAL PRIMARY KEY,
+        tenant_id       INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        period          TEXT NOT NULL,       -- 'week'|'30day'|'90day'
+        platform        TEXT NOT NULL,       -- platform value or 'all'
+        section_key     TEXT NOT NULL,       -- 'hero'|'goal'|'attention'|...
+        body            JSONB NOT NULL,
+        prompt_version  TEXT NOT NULL,
+        model           TEXT NOT NULL,
+        input_hash      TEXT NOT NULL,
+        cost_cents      NUMERIC(10,4) NOT NULL,
+        generated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, period, platform, section_key)
+      );
+
+      -- Audit log: one row per sync run (interval, manual, or backfill).
+      CREATE TABLE IF NOT EXISTS insights_sync_runs (
+        id              BIGSERIAL PRIMARY KEY,
+        tenant_id       INTEGER NOT NULL,
+        account_id      BIGINT NOT NULL,
+        platform        TEXT NOT NULL,
+        trigger         TEXT NOT NULL,    -- 'interval'|'handler'|'backfill'
+        started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_at     TIMESTAMPTZ,
+        status          TEXT NOT NULL,    -- 'running'|'ok'|'partial'|'failed'
+        posts_seen      INT NOT NULL DEFAULT 0,
+        comments_seen   INT NOT NULL DEFAULT 0,
+        api_units_used  INT NOT NULL DEFAULT 0,
+        error_message   TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_sync_runs_tenant_platform_started
+        ON insights_sync_runs (tenant_id, platform, started_at DESC);
+      -- Partial index serving the stranded-run sweep
+      -- (backend/insights/sync/sweep-stranded-runs.ts: WHERE status='running'
+      -- AND started_at < cutoff). Near-empty — 'running' rows are transient —
+      -- so the half-hourly sweep never seq-scans this append-only audit table.
+      CREATE INDEX IF NOT EXISTS idx_insights_sync_runs_running_started
+        ON insights_sync_runs (started_at) WHERE status = 'running';
+
+      -- AA-129 item 12 (2026-08-14): a per-LLM-call cost audit table used to be
+      -- created here. It was never wired — no code reads or writes it — and the
+      -- job it was meant to do is done by task_execution_log (AA-159), which
+      -- records engine, tokens, cost and duration for real work. Two cost
+      -- cost tables, one of which nothing writes to, invites querying the
+      -- wrong one. (How many rows it actually holds is NOT claimed here — see
+      -- the count below, which is why that question does not need answering.)
+      --
+      -- REMOVING THE CREATE IS ONLY HALF THE JOB, and the half that helps the
+      -- fewest databases. A migrations/-only file does NOT run in production —
+      -- init-db.js is the schema applied at container start (see the note in
+      -- migrations/20260604000000_marketing_schedule.sql, and
+      -- scripts/release/apply-schema-with-worker-restore.sh, which runs exactly
+      -- this file). So the drop has to happen HERE or it never happens on the
+      -- one database that actually has the table.
+      --
+      -- IT DROPS ONLY WHEN EMPTY. "It never held a row" is an inference from
+      -- the code — nothing writes it — not a measurement of production. Rather
+      -- than let a DROP act on an unverified assumption, the assumption is
+      -- CHECKED at drop time: an empty table is removed, and a table with rows
+      -- is kept and reported loudly for a human to look at. That turns the
+      -- claim into a precondition, and the failure mode from "silently
+      -- destroyed data nobody knew existed" into "a warning in the deploy log".
+      DO $drop_dead_llm_calls$
+      DECLARE
+        row_count bigint;
+      BEGIN
+        -- Unqualified, like every other statement in this file: it resolves
+        -- through search_path, which is public in production and lets the
+        -- requires-infra test run this exact block against a scratch schema
+        -- (the repo's established isolation idiom) instead of touching a real
+        -- table to prove it works.
+        IF to_regclass('insights_llm_calls') IS NULL THEN
+          RETURN;  -- already gone, or a database created after this landed
+        END IF;
+
+        EXECUTE 'SELECT count(*) FROM insights_llm_calls' INTO row_count;
+
+        IF row_count = 0 THEN
+          DROP TABLE insights_llm_calls;  -- index goes with it
+          RAISE NOTICE 'AA-129 item 12: dropped unused empty table insights_llm_calls';
+        ELSE
+          RAISE WARNING
+            'AA-129 item 12: insights_llm_calls holds % row(s) — NOT dropping. Something wrote to a table believed unused; investigate before removing it.',
+            row_count;
+        END IF;
+      END
+      $drop_dead_llm_calls$;
+
+      -- content_type is derived at sync time by a caption-keyword heuristic
+      -- (backend/insights/sync/classify-post.ts), stamped inline in the
+      -- fetchPostList upsert (backend/insights/sync/dispatcher.ts) and
+      -- backfilled for pre-existing rows by scripts/backfill-insights-content-type.ts.
+      -- It is COALESCE-preserved on re-sync (a stamped value is never
+      -- clobbered), so the analytics module stays self-contained without a
+      -- cross-domain JOIN for content-mix queries.
+      -- aries_post_id links each analytics row back to its Aries-generated source post,
+      -- enforcing the Aries-only analytics scope.
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS content_type TEXT;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS aries_post_id BIGINT REFERENCES posts(id) ON DELETE SET NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_content_type
+        ON insights_posts (tenant_id, content_type)
+        WHERE content_type IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_aries_post_id
+        ON insights_posts (aries_post_id)
+        WHERE aries_post_id IS NOT NULL;
+
+      -- Per-object health state (audit item 5b). Mirrored verbatim in
+      -- migrations/20260810000000_insights_object_health.sql.
+      --
+      -- A post deleted on-platform answered Graph (#100) on every 30-minute
+      -- tick forever: last_metrics_fetched_at was stamped only on success and
+      -- the comments leg had no watermark at all, so the dead object was
+      -- re-selected indefinitely, pushed a fresh legError each tick, and pinned
+      -- its account's sync run at 'partial' permanently with no alert.
+      -- backend/insights/sync/object-health.ts owns the strike thresholds; the
+      -- dispatcher increments these columns in ONE atomic UPDATE per failure
+      -- (no read-modify-write, so a concurrent handler-triggered sync cannot
+      -- lose a strike) and resets them on success.
+      --
+      -- The two legs get INDEPENDENT state deliberately. They address the same
+      -- platform object but fail independently: with shared columns, a post
+      -- whose metrics succeed and whose comments permanently fail has its
+      -- counter reset to 0 by the metrics success every tick before the
+      -- comments failure can increment it — it never converges, which is the
+      -- exact poison signature these columns exist to end.
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS metrics_error_count INT NOT NULL DEFAULT 0;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS metrics_last_error TEXT;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS metrics_unavailable_at TIMESTAMPTZ;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS comments_error_count INT NOT NULL DEFAULT 0;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS comments_last_error TEXT;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS comments_unavailable_at TIMESTAMPTZ;
+
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_unavailable
+        ON insights_posts (tenant_id, account_id)
+        WHERE metrics_unavailable_at IS NOT NULL OR comments_unavailable_at IS NOT NULL;
+
+      -- is_replied is also declared inline in the CREATE TABLE insights_comments
+      -- above, but that table predates the column on existing databases and
+      -- CREATE TABLE IF NOT EXISTS never widens them — so the inline declaration is
+      -- a no-op on prod. Add it idempotently here too (matching the
+      -- content_type/aries_post_id pattern) so existing tables backfill on start.
+      -- conversations/narrative/attention/trends builders read c.is_replied and
+      -- would 500 once a tenant has comment rows without this.
+      ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS is_replied BOOLEAN NOT NULL DEFAULT false;
+
+      -- Native comment reply (qa-defect #598). platform_reply_id holds the Meta
+      -- Graph reply object id; replied_at stamps confirmed delivery. Both are
+      -- declared inline in the CREATE TABLE insights_comments above, but — like
+      -- is_replied — CREATE TABLE IF NOT EXISTS never widens an existing prod
+      -- table, so add them idempotently here too so they backfill on start.
+      ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS platform_reply_id TEXT;
+      ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ;
+    `);
+    // ─── End insights module ─────────────────────────────────────────────────
+
+    // ─── Multi-workspace membership (Phase 0 dark schema + backfill) ─────────────
+    // Plan: docs/plans/2026-07-03-multi-workspace-membership.md (Decision 1, 13;
+    // Phase 0; Eng findings 1 dual-write, 2 sentinel mapping, 7 lowercase email
+    // index, 11 no role default; CEO hardening finding 8 indexes).
+    // Mirrored in migrations/20260704000000_organization_memberships.sql.
+    //
+    // ADDITIVE + ZERO behavior change: nothing reads these tables/columns yet.
+    // This lays the membership seam so later phases join (active org, role) from a
+    // membership row instead of the single global users.organization_id/role.
+    // Runs after the users/organizations/workspace_invitations tables exist so the
+    // backfill INSERT…SELECT can reference all three. Idempotent (IF NOT EXISTS +
+    // ON CONFLICT DO NOTHING) so it re-runs safely on every container start.
+    await client.query(`
+      -- One row per (user, organization) the user belongs to. role has NO DEFAULT
+      -- (Eng finding 11 — users.role's DEFAULT 'tenant_admin' is a prod landmine we
+      -- do not replicate; every insert sets role explicitly). status is
+      -- 'invited' | 'active'. last_active_at drives the most-recently-used default
+      -- workspace (written on switch/sign-in only, backfilled here). PK
+      -- (user_id, organization_id) is also the concurrent-duplicate-invite
+      -- ON CONFLICT target and the pointer-validation join key.
+      CREATE TABLE IF NOT EXISTS organization_memberships (
+        user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        organization_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        role                 TEXT NOT NULL,
+        status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('invited','active')),
+        invited_by_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        invited_at           TIMESTAMPTZ,
+        accepted_at          TIMESTAMPTZ,
+        last_active_at       TIMESTAMPTZ,
+        created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, organization_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_organization_memberships_user
+        ON organization_memberships (user_id);
+      CREATE INDEX IF NOT EXISTS idx_organization_memberships_org_status
+        ON organization_memberships (organization_id, status);
+
+      -- Append-only audit of membership MUTATIONS (invited/accepted/removed/
+      -- role_changed/absorbed). No CHECK on event_type — documented values only,
+      -- matching the users.role convention. No event rows are written in Phase 0
+      -- (schema only); writers land in Phase 0.5 (absorb) and Phase 2.
+      CREATE TABLE IF NOT EXISTS organization_membership_events (
+        id               BIGSERIAL PRIMARY KEY,
+        organization_id  INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        actor_user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        event_type       TEXT NOT NULL,
+        metadata         JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_organization_membership_events_org_created
+        ON organization_membership_events (organization_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_organization_membership_events_user_created
+        ON organization_membership_events (user_id, created_at DESC);
+
+      -- Entitlement columns (Decision 13): multi-workspace is a PAID account-level
+      -- entitlement. plan is 'free' | 'pro' for v1 — no CHECK, matching the
+      -- users.role convention. plan_granted_at/plan_granted_by are audit columns
+      -- the grant CLI (Phase 4) writes. Nothing reads users.plan in Phase 0.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_granted_at TIMESTAMPTZ;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_granted_by TEXT;
+
+      -- Case-insensitive email uniqueness (Eng finding 7). Every lookup uses
+      -- LOWER(email) while the column is only TEXT UNIQUE; one-email-one-account is
+      -- load-bearing under multi-membership. Added after the Phase-0 read-only
+      -- dedupe audit found ZERO duplicate LOWER(email) groups in prod; a future dup
+      -- would fail this CREATE loudly rather than corrupt silently.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower_unique
+        ON users (LOWER(email));
+
+      -- AA-159: one append-only row per classified task execution, so cost
+      -- analysis can separate paid AI inference from zero-cost deterministic
+      -- automation and local/edge compute.
+      --   AI_LLM             -> work run by a model behind the Hermes gateway.
+      --   DETERMINISTIC_RULE -> rule-based automation (sweeps, dispatchers).
+      --   LOCAL_EDGE         -> in-process CPU work (sharp composite, ffmpeg).
+      -- Token/cost columns are a hard 0 on the two zero-cost engines (by
+      -- construction) and NULL on AI rows until the gateway reports usage —
+      -- NULL means "not reported", never "free". model_requested is the hint
+      -- Aries SENT; model_reported is what the gateway said it actually routed
+      -- to (Hermes owns routing and does not report it back today).
+      -- tenant_id is nullable: system sweeps are not tenant-scoped. No FK — this
+      -- is an append-only analytics log that must outlive the row it describes.
+      -- AA-158 widens the same row with per-user/per-task attribution, explicit
+      -- end_time, the prompt/completion/total token vocabulary, and the
+      -- attempt/retry axis. user_id is nullable and NULL on the majority of rows
+      -- BY DESIGN: the weekly cron, every sidecar, the reconciler, and all Hermes
+      -- callbacks are userless — only an operator-initiated route task has one.
+      -- task_id is the per-EXECUTION id (aries_run_id / job id / generated uuid),
+      -- as opposed to task_key which is the task TYPE.
+      CREATE TABLE IF NOT EXISTS task_execution_log (
+        id                BIGSERIAL PRIMARY KEY,
+        tenant_id         INTEGER,
+        user_id           INTEGER,
+        task_id           TEXT,
+        execution_engine  TEXT NOT NULL
+          CHECK (execution_engine IN ('AI_LLM','DETERMINISTIC_RULE','LOCAL_EDGE')),
+        task_key          TEXT NOT NULL,
+        -- 'retry' marks a non-terminal attempt that will be retried, so its token
+        -- usage is counted separately from the attempt that finally settles.
+        status            TEXT NOT NULL CHECK (status IN ('succeeded','failed','retry')),
+        attempt_number    INTEGER NOT NULL DEFAULT 1,
+        error_code        TEXT,
+        error_class       TEXT,
+        error_message     TEXT,
+        duration_ms       INTEGER,
+        cpu_ms            INTEGER,
+        model_requested   TEXT,
+        model_reported    TEXT,
+        target_profile    TEXT,
+        external_run_id   TEXT,
+        prompt_tokens     INTEGER,
+        completion_tokens INTEGER,
+        total_tokens      INTEGER,
+        -- Estimated execution cost only; NULL means no trustworthy estimate.
+        cost_cents        NUMERIC(10,4),
+        started_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+        end_time          TIMESTAMPTZ,
+        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      -- Existing installs created before execution-failure diagnostics shipped.
+      ALTER TABLE task_execution_log ADD COLUMN IF NOT EXISTS error_class TEXT;
+      ALTER TABLE task_execution_log ADD COLUMN IF NOT EXISTS error_message TEXT;
+      COMMENT ON COLUMN task_execution_log.cost_cents IS
+        'Estimated execution cost in cents; NULL when no trustworthy estimate is available.';
+      -- Serves the per-tenant cost breakdown and the cross-engine rollup.
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_tenant_started
+        ON task_execution_log (tenant_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_engine_started
+        ON task_execution_log (execution_engine, started_at DESC);
+      -- Serves the AA-158 per-user rollup. Partial: user_id is NULL on most rows
+      -- (userless cron/sidecar/callback work), so the index stays small.
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_user_started
+        ON task_execution_log (user_id, started_at DESC) WHERE user_id IS NOT NULL;
+      -- Serves "show me every attempt of this task", the retry-cost question.
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_task_id
+        ON task_execution_log (task_id) WHERE task_id IS NOT NULL;
+
+      -- AA-161: usage time-series aggregation + retention over the SAME raw
+      -- table (no second raw write path). Vocabulary map from the ticket:
+      -- usage_events -> task_execution_log, company_id -> tenant_id,
+      -- created_at -> started_at. Mirrors
+      -- migrations/20260727000000_usage_timeseries_rollups.sql.
+      --
+      -- Rollup TABLES, not MATERIALIZED VIEWs: an MV can only refresh whole (a
+      -- full rescan of a high-volume log each time) and is destroyed by the
+      -- 90-day raw purge, while daily aggregates must be kept indefinitely.
+      --
+      -- The two indexes below are the AC-2 filter set the existing single-axis
+      -- indexes do NOT serve: the tenant+engine+time billing query, and the pure
+      -- time-range scan the rollup and the retention delete run across all tenants.
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_tenant_engine_started
+        ON task_execution_log (tenant_id, execution_engine, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_started_at
+        ON task_execution_log (started_at);
+
+      -- Rollup grain: bucket + tenant + user + engine + task_key. tenant_id and
+      -- user_id are NOT NULL here (they are nullable on the raw row) because a
+      -- NULL inside a PRIMARY KEY breaks UPSERT idempotency — NULL <> NULL, so
+      -- every pass would insert a duplicate userless row instead of updating one.
+      -- They are COALESCEd to the sentinel 0, which the id sequences (starting at
+      -- 1) can never collide with; 0 means "not scoped".
+      -- Token columns stay NULLable: NULL is "not reported" (Hermes does not
+      -- report usage yet), never "free". ai_events vs ai_events_with_usage is the
+      -- denominator that keeps a $0 report from being misread as "no spend".
+      CREATE TABLE IF NOT EXISTS usage_rollup_hourly (
+        bucket_start         TIMESTAMPTZ NOT NULL,
+        tenant_id            INTEGER     NOT NULL,
+        user_id              INTEGER     NOT NULL,
+        execution_engine     TEXT        NOT NULL,
+        task_key             TEXT        NOT NULL,
+        events               BIGINT      NOT NULL,
+        succeeded            BIGINT      NOT NULL,
+        failed               BIGINT      NOT NULL,
+        retries              BIGINT      NOT NULL,
+        ai_events            BIGINT      NOT NULL,
+        ai_events_with_usage BIGINT      NOT NULL,
+        prompt_tokens        BIGINT,
+        completion_tokens    BIGINT,
+        total_tokens         BIGINT,
+        cost_cents           NUMERIC(16,4),
+        duration_ms_sum      BIGINT,
+        cpu_ms_sum           BIGINT,
+        first_event_at       TIMESTAMPTZ,
+        last_event_at        TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (bucket_start, tenant_id, user_id, execution_engine, task_key)
+      );
+      CREATE TABLE IF NOT EXISTS usage_rollup_daily (
+        bucket_start         TIMESTAMPTZ NOT NULL,
+        tenant_id            INTEGER     NOT NULL,
+        user_id              INTEGER     NOT NULL,
+        execution_engine     TEXT        NOT NULL,
+        task_key             TEXT        NOT NULL,
+        events               BIGINT      NOT NULL,
+        succeeded            BIGINT      NOT NULL,
+        failed               BIGINT      NOT NULL,
+        retries              BIGINT      NOT NULL,
+        ai_events            BIGINT      NOT NULL,
+        ai_events_with_usage BIGINT      NOT NULL,
+        prompt_tokens        BIGINT,
+        completion_tokens    BIGINT,
+        total_tokens         BIGINT,
+        cost_cents           NUMERIC(16,4),
+        duration_ms_sum      BIGINT,
+        cpu_ms_sum           BIGINT,
+        first_event_at       TIMESTAMPTZ,
+        last_event_at        TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (bucket_start, tenant_id, user_id, execution_engine, task_key)
+      );
+      CREATE TABLE IF NOT EXISTS usage_rollup_monthly (
+        bucket_start         TIMESTAMPTZ NOT NULL,
+        tenant_id            INTEGER     NOT NULL,
+        user_id              INTEGER     NOT NULL,
+        execution_engine     TEXT        NOT NULL,
+        task_key             TEXT        NOT NULL,
+        events               BIGINT      NOT NULL,
+        succeeded            BIGINT      NOT NULL,
+        failed               BIGINT      NOT NULL,
+        retries              BIGINT      NOT NULL,
+        ai_events            BIGINT      NOT NULL,
+        ai_events_with_usage BIGINT      NOT NULL,
+        prompt_tokens        BIGINT,
+        completion_tokens    BIGINT,
+        total_tokens         BIGINT,
+        cost_cents           NUMERIC(16,4),
+        duration_ms_sum      BIGINT,
+        cpu_ms_sum           BIGINT,
+        first_event_at       TIMESTAMPTZ,
+        last_event_at        TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (bucket_start, tenant_id, user_id, execution_engine, task_key)
+      );
+      -- Reporting reads are "one company, one period"; the PK's leading
+      -- bucket_start cannot serve them.
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_hourly_tenant_bucket
+        ON usage_rollup_hourly (tenant_id, bucket_start DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_daily_tenant_bucket
+        ON usage_rollup_daily (tenant_id, bucket_start DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_monthly_tenant_bucket
+        ON usage_rollup_monthly (tenant_id, bucket_start DESC);
+      -- Per-user billing slice. Partial: user_id is the 0 sentinel on most rows.
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_daily_user_bucket
+        ON usage_rollup_daily (user_id, bucket_start DESC) WHERE user_id <> 0;
+
+      -- One row (id='hourly') holding the exclusive upper bound of the last
+      -- rolled window, so each pass scans only new events. It is ALSO the
+      -- retention interlock: the purge never deletes a raw row at or above
+      -- (rolled_through - reroll overlap), so an un-aggregated row can never be
+      -- destroyed and a rollup can never be recomputed from rows already gone.
+      CREATE TABLE IF NOT EXISTS usage_rollup_state (
+        id             TEXT PRIMARY KEY,
+        rolled_through TIMESTAMPTZ NOT NULL,
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      -- The ticket's vocabulary resolved onto the real table, so reporting SQL
+      -- written against the spec runs unchanged without a second raw write path.
+      -- Explicit column list with the aliases leading: CREATE OR REPLACE VIEW may
+      -- only APPEND columns, so a future raw column goes at the END of this list
+      -- and the replace still succeeds (SELECT * would break every re-run).
+      CREATE OR REPLACE VIEW usage_events AS
+        SELECT
+          tenant_id  AS company_id,
+          started_at AS created_at,
+          id,
+          tenant_id,
+          user_id,
+          task_id,
+          execution_engine,
+          task_key,
+          status,
+          attempt_number,
+          error_code,
+          duration_ms,
+          cpu_ms,
+          model_requested,
+          model_reported,
+          target_profile,
+          external_run_id,
+          prompt_tokens,
+          completion_tokens,
+          total_tokens,
+          cost_cents,
+          started_at,
+          end_time,
+          recorded_at
+        FROM task_execution_log;
+
+      -- AA-162: coarse per-company-per-day surface for dashboards and chargeback,
+      -- so neither has to touch the raw log. usage_rollup_daily keeps the same day
+      -- at day x tenant x user x engine x task_key (right for drilling into a
+      -- bill); this is "show this customer their month". Mirrors
+      -- migrations/20260728000000_daily_company_usage.sql.
+      --
+      -- A MATERIALIZED VIEW is right HERE (unlike over the raw log) because its
+      -- source is usage_rollup_daily: already aggregated, small, and never touched
+      -- by the retention sweep — so a full refresh is cheap and the history is
+      -- permanent. Refreshed CONCURRENTLY at the end of each rollup pass by the
+      -- aries-usage-rollup-worker sidecar.
+      --
+      -- COGS reads 0/NULL today and that is truthful: cost_cents is a hard 0 on
+      -- the zero-cost engines and NULL on every AI row (Hermes does not report
+      -- usage back yet, and no cost is ever synthesized from a price table). That
+      -- is why ai_tasks / tasks_with_usage_reported ride alongside the sums — they
+      -- are what distinguishes "$0 spent" from "nothing reported its spend".
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_company_usage AS
+        SELECT
+          tenant_id AS company_id,
+          (bucket_start AT TIME ZONE 'UTC')::date AS usage_date,
+          -- Total executions LOGGED, retries included. settled_tasks and retries
+          -- sit beside it because one logical task that retried twice is three
+          -- rows (the AA-158 retry axis) and a chargeback must pick its own
+          -- definition.
+          sum(events)::bigint                    AS total_tasks,
+          (sum(succeeded) + sum(failed))::bigint AS settled_tasks,
+          sum(retries)::bigint                   AS retries,
+          sum(ai_events)::bigint                 AS ai_tasks,
+          sum(ai_events_with_usage)::bigint      AS tasks_with_usage_reported,
+          sum(prompt_tokens)::bigint             AS total_prompt_tokens,
+          sum(completion_tokens)::bigint         AS total_completion_tokens,
+          sum(total_tokens)::bigint              AS total_tokens,
+          sum(duration_ms_sum)::bigint           AS total_duration_ms,
+          sum(cpu_ms_sum)::bigint                AS total_cpu_ms,
+          sum(cost_cents)                        AS total_cogs_cents,
+          max(updated_at)                        AS source_updated_at
+        FROM usage_rollup_daily
+        GROUP BY 1, 2;
+      -- REQUIRED by REFRESH ... CONCURRENTLY, which refuses to run without a
+      -- unique index — not an optional performance index. Leading company_id also
+      -- serves the "one customer, one billing period" read.
+      -- company_id 0 is the AA-161 "not scoped" sentinel (system sweeps, cron,
+      -- callbacks); it is kept so totals reconcile against the raw log, and a
+      -- customer-facing surface should exclude it explicitly.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_company_usage_company_date
+        ON daily_company_usage (company_id, usage_date);
+
+      -- AA-163: tiered plan rate cards + per-company subscriptions. Mirrors
+      -- migrations/20260729000000_plan_rate_cards.sql.
+      --
+      -- The rate card is DECLARATIVE: cost_per_million_tokens_cents records what
+      -- a PM configured and nothing reads it to compute a bill (COGS stays
+      -- sum(cost_cents) from the raw log — no cost is synthesized here).
+      -- Enforcement runs on TASK COUNTS: every AI row has NULL tokens until
+      -- Hermes reports usage, so a token gate would never deny. Both allowances
+      -- are stored so the metric can flip with an env var, no migration.
+      --
+      -- The tier lives on the COMPANY, not on users: users.plan is a per-account
+      -- multi-workspace entitlement on a different axis (Decision 13).
+      -- A NULL allowance means UNLIMITED, which is how Enterprise/Custom works —
+      -- that tier plus the per-company override columns, not a fifth hardcoded tier.
+      CREATE TABLE IF NOT EXISTS plan_rate_cards (
+        tier_key                      TEXT PRIMARY KEY
+          CHECK (tier_key IN ('starter','growth','scale','enterprise')),
+        display_name                  TEXT NOT NULL,
+        monthly_task_allowance        BIGINT,
+        monthly_token_allowance       BIGINT,
+        cost_per_million_tokens_cents NUMERIC(12,4),
+        sort_order                    INTEGER NOT NULL DEFAULT 0,
+        updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS company_subscriptions (
+        company_id                       INTEGER PRIMARY KEY
+          REFERENCES organizations(id) ON DELETE CASCADE,
+        tier_key                         TEXT NOT NULL REFERENCES plan_rate_cards(tier_key),
+        monthly_task_allowance_override  BIGINT,
+        monthly_token_allowance_override BIGINT,
+        assigned_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        assigned_by                      TEXT,
+        updated_at                       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    // Seeded starting values, tunable by a PM without a deploy. DO NOTHING is
+    // load-bearing: an edited rate must survive every container start, so this
+    // seeds absent rows and never clobbers configured ones.
+    await client.query(`
+      INSERT INTO plan_rate_cards
+        (tier_key, display_name, monthly_task_allowance, monthly_token_allowance, cost_per_million_tokens_cents, sort_order)
+      VALUES
+        ('starter',    'Starter (Small)',      1000,  2000000, 1500.0000, 1),
+        ('growth',     'Growth (Medium)',      5000, 10000000, 1200.0000, 2),
+        ('scale',      'Scale (Large)',       25000, 50000000, 1000.0000, 3),
+        ('enterprise', 'Enterprise (Custom)',  NULL,     NULL,      NULL, 4)
+      ON CONFLICT (tier_key) DO NOTHING;
+    `);
+
+    // Every existing company starts on the entry tier. Idempotent: a company
+    // whose plan has since been changed keeps it.
+    await client.query(`
+      INSERT INTO company_subscriptions (company_id, tier_key, assigned_by)
+        SELECT o.id, 'starter', 'init-db:backfill' FROM organizations o
+        ON CONFLICT (company_id) DO NOTHING;
+    `);
+
+    // AA-164: purchased task credits + quota-alert dedupe. Mirrors
+    // migrations/20260730000000_company_credits_and_quota_alerts.sql.
+    //
+    // Credits are TASK credits — the unit AA-163 enforces on. A token balance
+    // would be unspendable and a token percentage would never move, because
+    // every AI row has NULL tokens until Hermes reports usage.
+    //
+    // Append-only: a balance is a SUM over unexpired rows, never a mutable
+    // counter (a decrement-in-place column loses its audit trail the moment two
+    // writers race). Credits stack on top of the monthly allowance and do NOT
+    // reset with the calendar month — voiding paid capacity at a month boundary
+    // would be taking money for nothing.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS company_credit_ledger (
+        id                BIGSERIAL PRIMARY KEY,
+        company_id        INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        -- Signed: a negative row reverses a mistake by appending its inverse
+        -- rather than editing history.
+        credits           BIGINT  NOT NULL CHECK (credits <> 0),
+        source            TEXT    NOT NULL CHECK (source IN ('purchase','grant','correction')),
+        -- Payment-gateway event id. The partial UNIQUE below is what makes
+        -- fulfillment idempotent — gateways redeliver, and double-crediting one
+        -- payment is a money bug. NULL for manual grants.
+        external_event_id TEXT,
+        note              TEXT,
+        granted_by        TEXT,
+        expires_at        TIMESTAMPTZ,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_company_credit_ledger_external_event
+        ON company_credit_ledger (external_event_id) WHERE external_event_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_company_credit_ledger_company_created
+        ON company_credit_ledger (company_id, created_at DESC);
+
+      -- The PRIMARY KEY IS the dedupe key: the alert sweep runs on every hourly
+      -- rollup tick, so without it a company sitting at 96% would be emailed
+      -- every hour until the month turned over.
+      CREATE TABLE IF NOT EXISTS usage_alert_notifications (
+        company_id   INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        period_start DATE    NOT NULL,
+        threshold    INTEGER NOT NULL CHECK (threshold IN (80, 95)),
+        recipients   INTEGER NOT NULL DEFAULT 0,
+        sent_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (company_id, period_start, threshold)
+      );
+    `);
+
+    // Idempotent backfill: one membership per user that has an org pointer today
+    // (Eng findings 1c + 2). status from the pending sentinel; role from the
+    // current global users.role; last_active_at from the (user,org) invitation's
+    // accepted_at when present, else users.created_at. ON CONFLICT DO NOTHING makes
+    // re-runs (and the pre-flip re-run in Phase 1) a no-op on rows the dual-write
+    // already created.
+    await client.query(`
+      INSERT INTO organization_memberships
+        (user_id, organization_id, role, status, invited_at, accepted_at, last_active_at, created_at, updated_at)
+      SELECT
+        u.id,
+        u.organization_id,
+        u.role,
+        CASE WHEN u.password_hash = 'invited_pending' THEN 'invited' ELSE 'active' END,
+        inv.created_at,
+        CASE WHEN u.password_hash = 'invited_pending' THEN NULL ELSE COALESCE(inv.accepted_at, u.created_at) END,
+        COALESCE(inv.accepted_at, u.created_at),
+        u.created_at,
+        u.created_at
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT wi.created_at, wi.accepted_at
+        FROM workspace_invitations wi
+        WHERE wi.user_id = u.id AND wi.organization_id = u.organization_id
+        ORDER BY wi.created_at DESC
+        LIMIT 1
+      ) inv ON TRUE
+      WHERE u.organization_id IS NOT NULL
+      ON CONFLICT (user_id, organization_id) DO NOTHING;
+    `);
+    // ─── End multi-workspace membership ──────────────────────────────────────────
+
+    // Research DDL used to run inside requests. Mirror the migration here,
+    // because db:init (not the migrations directory) runs during deployment.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS aries_research_jobs (
+        id UUID PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        task_spec JSONB NOT NULL DEFAULT '{}',
+        callback_token_hash TEXT NOT NULL,
+        hermes_envelope JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS aries_research_findings (
+        id UUID PRIMARY KEY,
+        job_id UUID NOT NULL REFERENCES aries_research_jobs(id) ON DELETE CASCADE,
+        raw JSONB NOT NULL,
+        curator_decision TEXT NOT NULL,
+        peer TEXT,
+        approved_message_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_aries_research_jobs_tenant_id ON aries_research_jobs(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_aries_research_findings_job_id ON aries_research_findings(job_id);
+    `);
+
+    console.log('Database initialized successfully.');
+  } catch (err) {
+    console.error('Error initializing database:', err);
+    process.exitCode = 1;
+    throw err;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
+initDb();

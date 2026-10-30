@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specs/marketing_response_shapes.v1.json",
+  "artifact_name": "marketing_response_shapes",
+  "artifact_type": "json_schema_bundle",
+  "schema_version": "1.0.0",
+  "title": "Marketing API Response and Error Shapes (frozen from backend behavior)",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "StartJobAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "marketing_job_status",
+        "jobId",
+        "jobType",
+        "marketing_stage",
+        "approvalRequired",
+        "jobStatusUrl"
+      ],
+      "properties": {
+        "jobId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "jobType": {
+          "$ref": "#/$defs/MarketingJobType"
+        },
+        "marketing_stage": {
+          "$ref": "#/$defs/marketing_stage"
+        },
+        "marketing_job_status": {
+          "const": "accepted"
+        },
+        "approvalRequired": {
+          "type": "boolean"
+        },
+        "approval": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "jobStatusUrl": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "GetJobStatusResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId",
+        "tenantName",
+        "brandWebsiteUrl",
+        "campaignWindow",
+        "durationDays",
+        "plannedPostCount",
+        "createdPostCount",
+        "assetPreviewCards",
+        "calendarEvents",
+        "marketing_job_state",
+        "marketing_job_status",
+        "marketing_stage",
+        "marketing_stage_status",
+        "updatedAt"
+      ],
+      "properties": {
+        "jobId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tenantName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "brandWebsiteUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "campaignWindow": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "start": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "end": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "durationDays": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "plannedPostCount": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "createdPostCount": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "assetPreviewCards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "platformSlug",
+              "platformName",
+              "channelType",
+              "title",
+              "summary",
+              "mediaCount",
+              "assetCount",
+              "previewHref"
+            ],
+            "properties": {
+              "id": { "type": "string" },
+              "platformSlug": { "type": "string" },
+              "platformName": { "type": "string" },
+              "channelType": { "type": "string" },
+              "title": { "type": "string" },
+              "summary": { "type": "string" },
+              "mediaCount": { "type": "number" },
+              "assetCount": { "type": "number" },
+              "previewHref": { "type": "string" }
+            }
+          }
+        },
+        "calendarEvents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "startsAt",
+              "endsAt",
+              "platform",
+              "title",
+              "status",
+              "assetPreviewId"
+            ],
+            "properties": {
+              "id": { "type": "string" },
+              "startsAt": { "type": "string" },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "platform": { "type": "string" },
+              "title": { "type": "string" },
+              "status": { "type": "string" },
+              "assetPreviewId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "updatedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "marketing_job_state": {
+          "type": "string"
+        },
+        "marketing_job_status": {
+          "type": "string"
+        },
+        "marketing_stage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "marketing_stage_status": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "approval": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "publishConfig": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "platforms",
+            "livePublishPlatforms",
+            "videoRenderPlatforms"
+          ],
+          "properties": {
+            "platforms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "livePublishPlatforms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "videoRenderPlatforms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ApproveJobResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approval_status",
+        "jobId",
+        "resumedStage",
+        "completed"
+      ],
+      "properties": {
+        "jobId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumedStage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "approval_status": {
+          "type": "string",
+          "enum": [
+            "resumed",
+            "error"
+          ]
+        }
+      }
+    },
+    "HardFailureError": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "string",
+          "pattern": "^HARD_FAILURE:"
+        }
+      },
+      "description": "Thrown when required schemas are missing/invalid."
+    },
+    "UnhandledError": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "description": "Catch-all for JSON parse failures, IO failures, and unexpected runtime exceptions"
+    },
+    "MarketingJobType": {
+      "type": "string",
+      "enum": [
+        "weekly_social_content"
+      ]
+    },
+    "marketing_stage": {
+      "type": "string",
+      "enum": [
+        "research",
+        "strategy",
+        "production",
+        "publish"
+      ]
+    }
+  }
+}

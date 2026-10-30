@@ -1,0 +1,756 @@
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+
+import { resolveDataPath } from '@/lib/runtime-paths';
+import { repairLegacyMarketingText, repairStaleMarketingOffer } from '@/backend/marketing/brand-kit';
+import { marketingPayloadDefaultsFromBusinessProfile } from '@/backend/tenant/business-profile';
+// Type-only import (erased at runtime) — avoids a runtime cycle with
+// runtime-views.ts, which value-imports this module.
+import type { PersistedDashboardListProjection } from './runtime-views';
+
+export type SocialContentWorkflowState =
+  | 'draft'
+  | 'brand_review_required'
+  | 'strategy_review_required'
+  | 'creative_review_required'
+  | 'revisions_requested'
+  | 'approved'
+  | 'ready_to_publish'
+  | 'published'
+  // Pipeline reached runtime state=completed but no publish-ready or live
+  // content was produced. UI must show "Completed (no content)" instead of
+  // falling through to "Draft" — see mkt_bb1c146c-* QA incident.
+  | 'completed_no_content';
+
+export type MarketingReviewStageKey = 'brand' | 'strategy' | 'creative';
+
+export type MarketingReviewDecisionAction = 'approve' | 'changes_requested' | 'reject';
+
+export type MarketingReviewStatus =
+  | 'not_ready'
+  | 'pending_review'
+  | 'approved'
+  | 'changes_requested'
+  | 'rejected';
+
+export type SocialContentStageReviewEvidenceKind = 'upload_only' | 'real_artifacts';
+
+export type SocialContentBriefAssetRecord = {
+  id: string;
+  name: string;
+  fileName: string;
+  contentType: string;
+  filePath: string;
+  size: number;
+  uploadedAt: string;
+};
+
+export type SocialContentBriefRecord = {
+  websiteUrl: string;
+  businessName: string;
+  businessType: string;
+  approverName: string;
+  goal: string;
+  offer: string;
+  competitorUrl: string;
+  channels: string[];
+  brandVoice: string;
+  styleVibe: string;
+  visualReferences: string[];
+  mustUseCopy: string;
+  mustAvoidAesthetics: string;
+  notes: string;
+  brandAssets: SocialContentBriefAssetRecord[];
+};
+
+export type SocialContentStatusHistoryEntry = {
+  id: string;
+  at: string;
+  actor: string;
+  type: 'state_changed' | 'stage_review' | 'creative_asset_review' | 'comment';
+  workflowState: SocialContentWorkflowState;
+  stage?: MarketingReviewStageKey;
+  assetId?: string;
+  action?: MarketingReviewDecisionAction;
+  note?: string | null;
+  status?: MarketingReviewStatus;
+};
+
+export type SocialContentStageReviewState = {
+  status: MarketingReviewStatus;
+  latestNote: string | null;
+  updatedAt: string | null;
+  evidenceKind: SocialContentStageReviewEvidenceKind | null;
+};
+
+export type SocialContentCreativeAssetReviewState = {
+  assetId: string;
+  status: MarketingReviewStatus;
+  latestNote: string | null;
+  updatedAt: string | null;
+};
+
+export type SocialContentWorkspaceRecord = {
+  schema_name: 'marketing_campaign_workspace';
+  schema_version: '1.0.0';
+  job_id: string;
+  tenant_id: string;
+  workflow_state: SocialContentWorkflowState;
+  brief: SocialContentBriefRecord;
+  stage_reviews: Record<MarketingReviewStageKey, SocialContentStageReviewState>;
+  creative_asset_reviews: Record<string, SocialContentCreativeAssetReviewState>;
+  status_history: SocialContentStatusHistoryEntry[];
+  // Write-time denormalization of the campaign-list "pending approvals" badge.
+  // The authoritative count is buildReviewItemsFromContext(...).filter(s !==
+  // 'approved').length (runtime-views.ts), which requires a full per-job
+  // workspace-view hydration. Persisting it here lets the campaign-list /
+  // results hot path read the badge O(1) instead of re-hydrating every job.
+  // OPTIONAL by design: absent on legacy records predating this field — the
+  // list path read-through-fallbacks (recompute once, persist, self-heal).
+  // Every write site that can change the count MUST recompute + persist it
+  // (see recomputeAndPersistPendingApprovalCount in runtime-views.ts).
+  pending_approval_count?: number;
+  // Write-time denormalization of the FULL campaign-list row (mirrors
+  // pending_approval_count, but for the whole row instead of a scalar). Lets
+  // /api/social-content/posts and /api/marketing/posts serve O(rows) without
+  // re-running buildSocialContentWorkspaceView (loadStagePayloadBundle) per job.
+  // OPTIONAL by design: absent on legacy records → the list path read-through
+  // self-heals (build once, persist). Every write site that can change the row
+  // MUST recompute + persist it (recomputeAndPersistPendingApprovalCount now
+  // persists both this and pending_approval_count off the same hydration).
+  dashboard_list_projection?: PersistedDashboardListProjection;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SocialContentWorkflowSnapshot = {
+  brandWorkflowReady: boolean;
+  strategyReviewReady: boolean;
+  creativeReviewReady: boolean;
+  creativeAssetIds: string[];
+  publishReadySignal: boolean;
+  publishedSignal: boolean;
+  /**
+   * True when the marketing job's runtime state is `completed`. Used to
+   * surface "Completed (no content)" instead of "Draft" when a run finished
+   * but never produced publishable content (publishReadySignal=false).
+   */
+  completedSignal: boolean;
+};
+
+export type SocialContentWorkflowResolution = {
+  workflowState: SocialContentWorkflowState;
+  creativeApprovedCount: number;
+  creativePendingCount: number;
+  creativeRejectedCount: number;
+  publishBlockedReason: string | null;
+};
+
+export type CreateSocialContentWorkspaceInput = {
+  jobId: string;
+  tenantId: string;
+  payload?: Record<string, unknown>;
+};
+
+export type SocialContentWorkspaceAssetUpload = {
+  name: string;
+  contentType: string;
+  data: Buffer;
+};
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function stringValue(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value.trim() || fallback : fallback;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map((entry) => entry.trim());
+}
+
+function coalesceStringPayload(primary: unknown, fallback: unknown): string | undefined {
+  const primaryValue = stringValue(primary);
+  if (primaryValue) {
+    return primaryValue;
+  }
+  const fallbackValue = stringValue(fallback);
+  return fallbackValue || undefined;
+}
+
+// Tenant-identity defaults always apply (the approver is the human operator,
+// independent of which brand the campaign targets). Brand-identity defaults
+// (name, type, goal, offer, voice, style, competitor, channels) only apply
+// when the incoming payload's brand URL matches the tenant's registered
+// websiteUrl — otherwise we'd bleed the previous campaign's brand into a
+// new one when the same tenant runs campaigns for different brands.
+function normalizeBrandUrlForComparison(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  try {
+    const url = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    const pathPart = url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, '');
+    return `${host}${pathPart}`;
+  } catch {
+    return trimmed.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  }
+}
+
+async function withBusinessProfileDefaults(
+  tenantId: string,
+  payload: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const defaults = await marketingPayloadDefaultsFromBusinessProfile(tenantId);
+  const nextPayload = { ...payload };
+
+  const websiteUrl = coalesceStringPayload(payload.websiteUrl || payload.brandUrl, defaults.websiteUrl);
+  if (websiteUrl) {
+    nextPayload.websiteUrl = websiteUrl;
+    if (!stringValue(payload.brandUrl)) {
+      nextPayload.brandUrl = websiteUrl;
+    }
+  }
+
+  const payloadBrandUrl = stringValue(payload.websiteUrl || payload.brandUrl);
+  const tenantBrandUrl = stringValue(defaults.websiteUrl);
+  const brandUrlsMatch =
+    Boolean(payloadBrandUrl && tenantBrandUrl) &&
+    normalizeBrandUrlForComparison(payloadBrandUrl) === normalizeBrandUrlForComparison(tenantBrandUrl);
+
+  const tenantIdentityMappings: Array<[keyof typeof defaults, string[]]> = [
+    ['approverName', ['approverName', 'launchApproverName']],
+  ];
+
+  const brandIdentityMappings: Array<[keyof typeof defaults, string[]]> = [
+    ['businessName', ['businessName']],
+    ['businessType', ['businessType']],
+    ['primaryGoal', ['primaryGoal', 'goal']],
+    ['offer', ['offer']],
+    ['brandVoice', ['brandVoice']],
+    ['styleVibe', ['styleVibe']],
+    ['competitorUrl', ['competitorUrl']],
+  ];
+
+  const mappings = brandUrlsMatch
+    ? [...tenantIdentityMappings, ...brandIdentityMappings]
+    : tenantIdentityMappings;
+
+  for (const [defaultKey, payloadKeys] of mappings) {
+    const defaultValue = defaults[defaultKey];
+    if (!defaultValue) {
+      continue;
+    }
+    for (const payloadKey of payloadKeys) {
+      if (!stringValue(nextPayload[payloadKey])) {
+        nextPayload[payloadKey] = defaultValue;
+      }
+    }
+  }
+
+  const mergedChannels = stringArray(payload.channels);
+  if (
+    brandUrlsMatch &&
+    mergedChannels.length === 0 &&
+    defaults.channels &&
+    defaults.channels.length > 0
+  ) {
+    nextPayload.channels = defaults.channels;
+  }
+
+  return nextPayload;
+}
+
+function workspaceRoot(jobId: string): string {
+  return resolveDataPath('generated', 'draft', 'marketing-workspaces', jobId);
+}
+
+function workspaceStatePath(jobId: string): string {
+  return path.join(workspaceRoot(jobId), 'workspace.json');
+}
+
+function workspaceAssetsRoot(jobId: string): string {
+  return path.join(workspaceRoot(jobId), 'brief-assets');
+}
+
+export function marketingWorkspaceAssetUrl(jobId: string, assetId: string): string {
+  return `/api/marketing/jobs/${encodeURIComponent(jobId)}/workspace-assets/${encodeURIComponent(assetId)}`;
+}
+
+function safeFileName(fileName: string): string {
+  const base = path.basename(fileName).replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-');
+  return base || 'asset';
+}
+
+function emptyStageReviewState(): SocialContentStageReviewState {
+  return {
+    status: 'not_ready',
+    latestNote: null,
+    updatedAt: null,
+    evidenceKind: null,
+  };
+}
+
+function normalizeStageReviewState(value: SocialContentStageReviewState | null | undefined): SocialContentStageReviewState {
+  return {
+    status: value?.status || 'not_ready',
+    latestNote: value?.latestNote ?? null,
+    updatedAt: value?.updatedAt ?? null,
+    evidenceKind: value?.evidenceKind ?? null,
+  };
+}
+
+function normalizeSocialContentBrief(
+  payload: Record<string, unknown> = {},
+  existing?: SocialContentBriefRecord,
+): SocialContentBriefRecord {
+  return {
+    websiteUrl: stringValue(payload.websiteUrl || payload.brandUrl, existing?.websiteUrl || ''),
+    businessName: repairLegacyMarketingText(stringValue(payload.businessName, existing?.businessName || '')) || '',
+    businessType: repairLegacyMarketingText(stringValue(payload.businessType, existing?.businessType || '')) || '',
+    approverName: repairLegacyMarketingText(stringValue(payload.approverName || payload.launchApproverName, existing?.approverName || '')) || '',
+    goal: repairLegacyMarketingText(stringValue(payload.goal || payload.primaryGoal, existing?.goal || '')) || '',
+    offer:
+      repairStaleMarketingOffer({
+        offer: stringValue(payload.offer, existing?.offer || ''),
+        brandName: stringValue(payload.businessName, existing?.businessName || ''),
+        businessType: stringValue(payload.businessType, existing?.businessType || ''),
+        primaryGoal: stringValue(payload.goal || payload.primaryGoal, existing?.goal || ''),
+        brandVoice: stringValue(payload.brandVoice, existing?.brandVoice || ''),
+        notes: stringValue(payload.notes, existing?.notes || ''),
+      }) || '',
+    competitorUrl: stringValue(payload.competitorUrl, existing?.competitorUrl || ''),
+    channels: stringArray(payload.channels).length > 0
+      ? stringArray(payload.channels)
+      : (existing?.channels || []),
+    brandVoice: repairLegacyMarketingText(stringValue(payload.brandVoice, existing?.brandVoice || '')) || '',
+    styleVibe: repairLegacyMarketingText(stringValue(payload.styleVibe, existing?.styleVibe || '')) || '',
+    visualReferences: stringArray(payload.visualReferences).length > 0
+      ? stringArray(payload.visualReferences).map((entry) => repairLegacyMarketingText(entry) || '').filter(Boolean)
+      : (existing?.visualReferences || []).map((entry) => repairLegacyMarketingText(entry) || '').filter(Boolean),
+    mustUseCopy: repairLegacyMarketingText(stringValue(payload.mustUseCopy, existing?.mustUseCopy || '')) || '',
+    mustAvoidAesthetics: repairLegacyMarketingText(stringValue(payload.mustAvoidAesthetics, existing?.mustAvoidAesthetics || '')) || '',
+    notes: repairLegacyMarketingText(stringValue(payload.notes, existing?.notes || '')) || '',
+    brandAssets: existing?.brandAssets || [],
+  };
+}
+
+export async function createSocialContentWorkspaceRecord(input: CreateSocialContentWorkspaceInput): Promise<SocialContentWorkspaceRecord> {
+  const ts = nowIso();
+  const payload = await withBusinessProfileDefaults(input.tenantId, input.payload || {});
+  return {
+    schema_name: 'marketing_campaign_workspace',
+    schema_version: '1.0.0',
+    job_id: input.jobId,
+    tenant_id: input.tenantId,
+    workflow_state: 'draft',
+    brief: normalizeSocialContentBrief(payload),
+    stage_reviews: {
+      brand: emptyStageReviewState(),
+      strategy: emptyStageReviewState(),
+      creative: emptyStageReviewState(),
+    },
+    creative_asset_reviews: {},
+    status_history: [
+      {
+        id: `hist_${randomUUID()}`,
+        at: ts,
+        actor: 'system',
+        type: 'state_changed',
+        workflowState: 'draft',
+        note: 'Campaign workspace created.',
+      },
+    ],
+    created_at: ts,
+    updated_at: ts,
+  };
+}
+
+export function loadSocialContentWorkspaceRecord(jobId: string, tenantId?: string): SocialContentWorkspaceRecord | null {
+  const filePath = workspaceStatePath(jobId);
+  if (!existsSync(filePath)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as SocialContentWorkspaceRecord;
+    if (!parsed || parsed.schema_name !== 'marketing_campaign_workspace' || parsed.job_id !== jobId) {
+      return null;
+    }
+    if (tenantId && parsed.tenant_id !== tenantId) {
+      return null;
+    }
+    parsed.stage_reviews ||= {
+      brand: emptyStageReviewState(),
+      strategy: emptyStageReviewState(),
+      creative: emptyStageReviewState(),
+    };
+    parsed.stage_reviews.brand = normalizeStageReviewState(parsed.stage_reviews.brand);
+    parsed.stage_reviews.strategy = normalizeStageReviewState(parsed.stage_reviews.strategy);
+    parsed.stage_reviews.creative = normalizeStageReviewState(parsed.stage_reviews.creative);
+    parsed.creative_asset_reviews ||= {};
+    parsed.status_history ||= [];
+    // Legacy records predate pending_approval_count. Leave it `undefined`
+    // (rather than defaulting to 0) so the list read-through fallback can tell
+    // "never computed" apart from "genuinely zero pending" and self-heal.
+    if (parsed.pending_approval_count !== undefined
+        && (typeof parsed.pending_approval_count !== 'number'
+            || !Number.isFinite(parsed.pending_approval_count)
+            || parsed.pending_approval_count < 0)) {
+      parsed.pending_approval_count = undefined;
+    }
+    // Legacy/malformed dashboard_list_projection → reset to undefined so the
+    // list read-through self-heals (rebuild once, persist) instead of serving a
+    // half-empty row. A valid projection is
+    //   { listRow: { dashboard: {posts[],assets[],publishItems[],calendarEvents[],statuses{}} },
+    //     post, sourceUpdatedAt:string }.
+    // We validate the dashboard ARRAYS (not just the 'dashboard' key): a partial
+    // `dashboard:{}` would otherwise pass the shape check and then crash
+    // mergeDashboardContent (`merged.posts.push(...item.posts)` on undefined) and
+    // 500 the whole /api/marketing/posts response. We also require the
+    // sourceUpdatedAt freshness stamp (string); a pre-stamp projection resets so
+    // it rebuilds once with a stamp.
+    if (parsed.dashboard_list_projection !== undefined) {
+      const proj = parsed.dashboard_list_projection as Record<string, unknown> | null;
+      const listRow = (proj as { listRow?: Record<string, unknown> } | null)?.listRow;
+      const dashboard = (listRow as { dashboard?: Record<string, unknown> } | undefined)?.dashboard;
+      const projOk =
+        !!proj &&
+        typeof proj === 'object' &&
+        'post' in proj &&
+        typeof proj.sourceUpdatedAt === 'string' &&
+        !!listRow &&
+        typeof listRow === 'object' &&
+        !!dashboard &&
+        typeof dashboard === 'object' &&
+        Array.isArray((dashboard as { posts?: unknown }).posts) &&
+        Array.isArray((dashboard as { assets?: unknown }).assets) &&
+        Array.isArray((dashboard as { publishItems?: unknown }).publishItems) &&
+        Array.isArray((dashboard as { calendarEvents?: unknown }).calendarEvents) &&
+        !!(dashboard as { statuses?: unknown }).statuses &&
+        typeof (dashboard as { statuses?: unknown }).statuses === 'object' &&
+        // statuses.countsByStatus must be a non-null object too: mergeDashboardContent
+        // indexes `item.statuses.countsByStatus[status]`, so a corrupted `statuses:{}`
+        // (object, but no countsByStatus) would still throw and 500 /api/marketing/posts.
+        !!(dashboard as { statuses?: { countsByStatus?: unknown } }).statuses!.countsByStatus &&
+        typeof (dashboard as { statuses?: { countsByStatus?: unknown } }).statuses!.countsByStatus ===
+          'object';
+      if (!projOk) {
+        parsed.dashboard_list_projection = undefined;
+      }
+    }
+    parsed.brief = normalizeSocialContentBrief(parsed.brief as unknown as Record<string, unknown>, parsed.brief);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function saveSocialContentWorkspaceRecord(record: SocialContentWorkspaceRecord): string {
+  const filePath = workspaceStatePath(record.job_id);
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  record.updated_at = nowIso();
+  writeFileSync(filePath, JSON.stringify(record, null, 2));
+  return filePath;
+}
+
+/**
+ * Persist the denormalized pending-approval badge count onto the workspace
+ * record. Loads the existing record (the workspace-view build that produced the
+ * count has already ensured/saved it), mutates only the scalar, and writes back
+ * only when the value actually changed — so this never churns updated_at or the
+ * file on no-op recomputes (the common case on read-through). Returns true when
+ * a write occurred. No-op (returns false) when the record is missing — callers
+ * recompute off a freshly-built view whose ensure step created the record, so a
+ * missing record here means the job has no workspace state to badge.
+ */
+export function persistPendingApprovalCount(
+  jobId: string,
+  tenantId: string,
+  count: number,
+): boolean {
+  const record = loadSocialContentWorkspaceRecord(jobId, tenantId);
+  if (!record) {
+    return false;
+  }
+  const normalized = Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0;
+  if (record.pending_approval_count === normalized) {
+    return false;
+  }
+  record.pending_approval_count = normalized;
+  saveSocialContentWorkspaceRecord(record);
+  return true;
+}
+
+/**
+ * Persist the denormalized campaign-list row projection onto the workspace
+ * record. Object analog of persistPendingApprovalCount: loads the record,
+ * no-ops when missing, and writes back ONLY when the projection actually
+ * changed (deep-equal via JSON compare) so it never churns updated_at / the
+ * file on no-op recomputes (updated_at is the campaign-list sort key).
+ */
+export function persistDashboardListProjection(
+  jobId: string,
+  tenantId: string,
+  projection: PersistedDashboardListProjection,
+): boolean {
+  const record = loadSocialContentWorkspaceRecord(jobId, tenantId);
+  if (!record) {
+    return false;
+  }
+  const next = JSON.stringify(projection);
+  const prev =
+    record.dashboard_list_projection === undefined
+      ? undefined
+      : JSON.stringify(record.dashboard_list_projection);
+  if (prev === next) {
+    return false;
+  }
+  record.dashboard_list_projection = projection;
+  saveSocialContentWorkspaceRecord(record);
+  return true;
+}
+
+export async function ensureSocialContentWorkspaceRecord(input: CreateSocialContentWorkspaceInput): Promise<SocialContentWorkspaceRecord> {
+  const payload = await withBusinessProfileDefaults(input.tenantId, input.payload || {});
+  const existing = loadSocialContentWorkspaceRecord(input.jobId, input.tenantId);
+  if (existing) {
+    existing.brief = normalizeSocialContentBrief(payload, existing.brief);
+    saveSocialContentWorkspaceRecord(existing);
+    return existing;
+  }
+
+  const created = await createSocialContentWorkspaceRecord({ ...input, payload });
+  saveSocialContentWorkspaceRecord(created);
+  return created;
+}
+
+export function saveSocialContentWorkspaceAssets(
+  record: SocialContentWorkspaceRecord,
+  uploads: SocialContentWorkspaceAssetUpload[],
+): SocialContentWorkspaceRecord {
+  if (uploads.length === 0) {
+    return record;
+  }
+
+  mkdirSync(workspaceAssetsRoot(record.job_id), { recursive: true });
+
+  const assets = uploads.map((upload) => {
+    const assetId = `brief_asset_${randomUUID()}`;
+    const fileName = safeFileName(upload.name);
+    const filePath = path.join(workspaceAssetsRoot(record.job_id), `${assetId}-${fileName}`);
+    writeFileSync(filePath, upload.data);
+    return {
+      id: assetId,
+      name: upload.name || fileName,
+      fileName,
+      contentType: upload.contentType || 'application/octet-stream',
+      filePath,
+      size: upload.data.byteLength,
+      uploadedAt: nowIso(),
+    } satisfies SocialContentBriefAssetRecord;
+  });
+
+  record.brief.brandAssets = [...record.brief.brandAssets, ...assets];
+  appendSocialContentHistory(record, {
+    actor: 'system',
+    type: 'comment',
+    workflowState: record.workflow_state,
+    note: `${assets.length} brand asset${assets.length === 1 ? '' : 's'} uploaded.`,
+  });
+  saveSocialContentWorkspaceRecord(record);
+  return record;
+}
+
+export function appendSocialContentHistory(
+  record: SocialContentWorkspaceRecord,
+  entry: Omit<SocialContentStatusHistoryEntry, 'id' | 'at'> & { at?: string },
+): SocialContentStatusHistoryEntry {
+  const created: SocialContentStatusHistoryEntry = {
+    id: `hist_${randomUUID()}`,
+    at: entry.at || nowIso(),
+    actor: entry.actor,
+    type: entry.type,
+    workflowState: entry.workflowState,
+    stage: entry.stage,
+    assetId: entry.assetId,
+    action: entry.action,
+    note: entry.note ?? null,
+    status: entry.status,
+  };
+  record.status_history.push(created);
+  return created;
+}
+
+export function setStageReviewDecision(
+  record: SocialContentWorkspaceRecord,
+  stage: MarketingReviewStageKey,
+  action: MarketingReviewDecisionAction,
+  actor: string,
+  note?: string,
+): SocialContentStageReviewState {
+  const nextStatus: MarketingReviewStatus =
+    action === 'approve'
+      ? 'approved'
+      : action === 'reject'
+        ? 'rejected'
+        : 'changes_requested';
+  const state = record.stage_reviews[stage] || emptyStageReviewState();
+  state.status = nextStatus;
+  state.latestNote = note?.trim() || null;
+  state.updatedAt = nowIso();
+  record.stage_reviews[stage] = state;
+  appendSocialContentHistory(record, {
+    actor,
+    type: 'stage_review',
+    workflowState: record.workflow_state,
+    stage,
+    action,
+    note: note?.trim() || null,
+    status: nextStatus,
+  });
+  return state;
+}
+
+export function setCreativeAssetDecision(
+  record: SocialContentWorkspaceRecord,
+  assetId: string,
+  action: MarketingReviewDecisionAction,
+  actor: string,
+  note?: string,
+): SocialContentCreativeAssetReviewState {
+  const nextStatus: MarketingReviewStatus =
+    action === 'approve'
+      ? 'approved'
+      : action === 'reject'
+        ? 'rejected'
+        : 'changes_requested';
+  const state = record.creative_asset_reviews[assetId] || {
+    assetId,
+    status: 'pending_review' as MarketingReviewStatus,
+    latestNote: null,
+    updatedAt: null,
+  };
+  state.status = nextStatus;
+  state.latestNote = note?.trim() || null;
+  state.updatedAt = nowIso();
+  record.creative_asset_reviews[assetId] = state;
+  appendSocialContentHistory(record, {
+    actor,
+    type: 'creative_asset_review',
+    workflowState: record.workflow_state,
+    stage: 'creative',
+    assetId,
+    action,
+    note: note?.trim() || null,
+    status: nextStatus,
+  });
+  return state;
+}
+
+function anyRequestedChanges(record: SocialContentWorkspaceRecord, creativeAssetIds: string[]): boolean {
+  if (
+    record.stage_reviews.brand.status === 'changes_requested' ||
+    record.stage_reviews.brand.status === 'rejected' ||
+    record.stage_reviews.strategy.status === 'changes_requested' ||
+    record.stage_reviews.strategy.status === 'rejected' ||
+    record.stage_reviews.creative.status === 'changes_requested' ||
+    record.stage_reviews.creative.status === 'rejected'
+  ) {
+    return true;
+  }
+
+  return creativeAssetIds.some((assetId) => {
+    const state = record.creative_asset_reviews[assetId];
+    return state?.status === 'changes_requested' || state?.status === 'rejected';
+  });
+}
+
+export function resolveSocialContentWorkflowState(
+  record: SocialContentWorkspaceRecord,
+  snapshot: SocialContentWorkflowSnapshot,
+): SocialContentWorkflowResolution {
+  const creativeStates = snapshot.creativeAssetIds.map((assetId) => record.creative_asset_reviews[assetId]);
+  const creativeApprovedCount = creativeStates.filter((state) => state?.status === 'approved').length;
+  const creativeRejectedCount = creativeStates.filter(
+    (state) => state?.status === 'changes_requested' || state?.status === 'rejected',
+  ).length;
+  const creativePendingCount = snapshot.creativeAssetIds.length - creativeApprovedCount - creativeRejectedCount;
+  const creativeResolved =
+    snapshot.creativeAssetIds.length === 0
+      ? record.stage_reviews.creative.status === 'approved'
+      : creativePendingCount === 0 && creativeRejectedCount === 0;
+
+  let workflowState: SocialContentWorkflowState = 'draft';
+  let publishBlockedReason: string | null = null;
+
+  if (snapshot.publishedSignal) {
+    workflowState = 'published';
+  } else if (anyRequestedChanges(record, snapshot.creativeAssetIds)) {
+    workflowState = 'revisions_requested';
+    publishBlockedReason = 'Revisions were requested and must be resolved before publishing.';
+  } else if (snapshot.brandWorkflowReady && record.stage_reviews.brand.status !== 'approved') {
+    workflowState = 'brand_review_required';
+    publishBlockedReason = 'Brand review must be approved before the social content job can move forward.';
+  } else if (snapshot.strategyReviewReady && record.stage_reviews.strategy.status !== 'approved') {
+    workflowState = 'strategy_review_required';
+    publishBlockedReason = 'Strategy review must be approved before creative can move forward.';
+  } else if (snapshot.creativeReviewReady && !creativeResolved) {
+    workflowState = 'creative_review_required';
+    publishBlockedReason = 'Every required creative asset must be approved before publish can be unlocked.';
+  } else if (snapshot.publishReadySignal) {
+    workflowState = 'ready_to_publish';
+  } else if (
+    snapshot.brandWorkflowReady &&
+    record.stage_reviews.brand.status === 'approved' &&
+    (!snapshot.strategyReviewReady || record.stage_reviews.strategy.status === 'approved') &&
+    (!snapshot.creativeReviewReady || creativeResolved)
+  ) {
+    workflowState = 'approved';
+  } else if (snapshot.completedSignal) {
+    // Runtime finished but produced no publishable or published content.
+    // Distinguish from `draft` so the operator can see the run is dead, not
+    // still in progress.
+    workflowState = 'completed_no_content';
+    publishBlockedReason = 'Pipeline completed but produced no publishable content. Start a new social content job or investigate the run.';
+  }
+
+  if (workflowState === 'approved' && !snapshot.publishReadySignal) {
+    publishBlockedReason = 'Publish-ready outputs are not available yet.';
+  }
+
+  return {
+    workflowState,
+    creativeApprovedCount,
+    creativePendingCount,
+    creativeRejectedCount,
+    publishBlockedReason,
+  };
+}
+
+export function syncSocialContentWorkflowState(
+  record: SocialContentWorkspaceRecord,
+  snapshot: SocialContentWorkflowSnapshot,
+): SocialContentWorkflowResolution {
+  const resolution = resolveSocialContentWorkflowState(record, snapshot);
+  if (record.workflow_state !== resolution.workflowState) {
+    record.workflow_state = resolution.workflowState;
+    appendSocialContentHistory(record, {
+      actor: 'system',
+      type: 'state_changed',
+      workflowState: resolution.workflowState,
+      note: `Workflow state changed to ${resolution.workflowState}.`,
+    });
+  }
+  saveSocialContentWorkspaceRecord(record);
+  return resolution;
+}

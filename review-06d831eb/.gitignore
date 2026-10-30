@@ -1,0 +1,189 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Project directories (ensured tracked)
+!specs/
+!skills/
+!backend/
+!frontend/
+!templates/
+!validators/
+!tests/
+
+# Build outputs
+dist/
+build/
+.next/
+*.tsbuildinfo
+generated/
+publish/*.js
+publish/*.js.map
+!publish/*.ts
+
+# IDE / Editor files
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+.DS_Store
+
+# Local assistant / workspace notes
+.opencode/
+
+# QA automation loop runtime state (see .claude/commands/aries-qa-loop.md)
+.qa-loop/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# Local ao orchestrator config (holds secrets like notifier webhooks).
+# Loaded via AO_CONFIG_PATH env var; never commit.
+agent-orchestrator.local.yaml
+agent-orchestrator.local.yml
+
+# Deploy-time collision backups — written by .github/workflows/deploy.yml
+# when VM-local untracked files would collide with the target ref. Growing
+# this under the repo root on every deploy would slow subsequent ls-files
+# scans; keep the dir local-only and out of git.
+.deploy-backups/
+
+# Private keys (never commit)
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Lobster generated output / local temp files
+# Every campaign run writes per-brand artifacts under these paths. Nothing
+# here is ever committed — treat it as pure runtime scratch space. Fresh
+# campaigns re-create whatever they need on first run.
+output/
+lobster/output/
+lobster/tmp-debug-args.lobster
+lobster/bin/__pycache__/
+
+# Per-brand / per-campaign generated assets (anywhere in the tree)
+*-campaign/
+ad-images/
+landing-pages/
+rendered/
+meta-ads/framex/
+meta-ads/betterup/
+meta-ads/acme/
+meta-ads/competitor/
+
+# Generated media outputs — never commit heavyweight binary artifacts
+*.mp4
+*.webm
+*.mov
+*.m4v
+!public/**/*.mp4
+!public/**/*.webm
+
+# Runtime state / cached business profiles / cached campaigns
+# DATA_ROOT lives outside the repo by default, but add explicit patterns
+# so a misconfigured DATA_ROOT pointed inside the repo never commits.
+data/generated/
+data/runtime/
+data/validated/
+data/draft/
+# ci-watcher-dispatch automation runtime log — appended every run, local-only.
+data/ci-watcher-dispatch-log.json
+
+# Cron-written runtime state that was historically tracked. These files are
+# now owned by on-VM automations (runtime-error-intake, feedback-daily-summary,
+# overnight-self-improve) and must not appear in git status or the deploy
+# workflow's dirty-tree guard would block every deploy. The automations
+# recreate them on first run if absent.
+data/runtime-error-incidents.json
+data/feedback-processing-log.json
+data/nightly-build-log.json
+
+# Runtime session state (local only)
+state/
+.openclaw/
+
+# Misc
+.artifacts/
+.cache/
+.eslintcache
+.stylelintcache
+.npm
+.npm-cache/
+.tmp/
+.clawhub/
+.gstack/
+tmp
+
+# Root identity / governance files — tracked as canonical repo truth.
+# PURPOSE.md is not tracked (local-only operator intent).
+PURPOSE.md
+
+# Internal scaffolding / operator artifacts — never commit to a public repo
+.sisyphus/
+.ralph/
+.codex
+qa-reports/
+
+# Operator memory logs — contents are local-only; the directory itself is
+# preserved (scripts/automations/ reads it at runtime) via .gitkeep/README.md
+memory/*
+!memory/.gitkeep
+!memory/README.md
+default/memory/*
+
+.DS_Store
+.env
+**/*.key
+**/*.pem
+**/secrets*
+*.pem
+*.key
+*.crt
+*.png
+*.jpeg
+*.jpg
+*.gif
+*.bmp
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+output/
+
+.agent/*.json
+!.agent/workflows/
+/local/
+.claude/*
+!.claude/hooks/
+!.claude/hooks/**
+!.claude/settings.json
+!.claude/commands/
+!.claude/commands/**
+!.claude/agents/
+!.claude/agents/**
+.agent/
+skills-lock.json
+
+agent-orchestrator.yaml
+agent-orchestrator.local.yaml
+
+# Generated daily artifacts — committing these pollutes diffs and leaks
+# per-session context into repo history. The generator scripts stay tracked;
+# their output lives locally only.
+docs/briefs/
+docs/superpowers/
+.env
+.env.local
+.env.*.local

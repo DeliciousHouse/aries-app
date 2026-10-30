@@ -1,0 +1,125 @@
+# syntax=docker/dockerfile:1.7
+
+ARG ARIES_NODE_UID=1004
+ARG ARIES_NODE_GID=1004
+
+FROM node:24-bookworm AS base
+WORKDIR /app
+
+FROM base AS deps
+COPY package*.json ./
+RUN npm ci
+
+FROM deps AS builder
+COPY . .
+RUN npm run build
+
+FROM node:24-bookworm AS runner
+ARG ARIES_NODE_UID=1004
+ARG ARIES_NODE_GID=1004
+ARG HERMES_AGENT_REF=ea0d54db1d22416ea07cd98abfb5d6e160aa86c9
+ARG HERMES_AGENT_SHA256=129ca02ccbb4c9c0e81c3bf4608cc9b150c2cd85aa29ad43e16c5b3602c92275
+ARG HERMES_UV_VERSION=0.11.7
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV CODE_ROOT=/app
+ENV DATA_ROOT=/data
+ENV HOME=/home/node
+
+RUN set -eux; \
+  echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4; \
+  apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    ca-certificates \
+    chromium \
+    curl \
+    ffmpeg \
+    ripgrep \
+    wget \
+  && rm -rf /var/lib/apt/lists/*; \
+  current_uid="$(id -u node)"; \
+  current_gid="$(id -g node)"; \
+  if [ "$current_gid" != "$ARIES_NODE_GID" ]; then \
+    groupmod -o -g "$ARIES_NODE_GID" node; \
+  fi; \
+  if [ "$current_uid" != "$ARIES_NODE_UID" ]; then \
+    usermod -o -u "$ARIES_NODE_UID" -g "$ARIES_NODE_GID" node; \
+  fi; \
+  mkdir -p /home/node /data/generated/draft /data/generated/validated; \
+  chown -R node:node /home/node /data /app
+
+# Hermes deliberately rejects wheel/sdist builds. Follow its supported editable
+# source install, using the committed uv.lock for dependency hashes/resolution.
+# The source tree remains because the editable runtime imports it directly.
+RUN python3 -m venv /opt/hermes-bootstrap \
+  && /opt/hermes-bootstrap/bin/pip install --no-cache-dir "uv==${HERMES_UV_VERSION}" \
+  && python3 -m venv /opt/hermes \
+  && mkdir -p /opt/hermes-agent-src \
+  && curl -fsSL \
+    "https://github.com/NousResearch/hermes-agent/archive/${HERMES_AGENT_REF}.tar.gz" \
+    -o /tmp/hermes-agent.tar.gz \
+  && echo "${HERMES_AGENT_SHA256}  /tmp/hermes-agent.tar.gz" | sha256sum -c - \
+  && tar -xzf /tmp/hermes-agent.tar.gz --strip-components=1 -C /opt/hermes-agent-src \
+  && cd /opt/hermes-agent-src \
+  && UV_CACHE_DIR=/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/opt/hermes \
+    /opt/hermes-bootstrap/bin/uv sync --frozen --no-dev \
+  && rm -rf /opt/hermes-bootstrap /tmp/hermes-agent.tar.gz /tmp/uv-cache
+ENV PATH="/opt/hermes/bin:${PATH}"
+
+COPY package*.json ./
+RUN npm ci --omit=dev \
+  && npm cache clean --force \
+  && chown -R node:node /home/node /app
+
+COPY --from=builder --chown=node:node /app/.next ./.next
+COPY --from=builder --chown=node:node /app/app ./app
+COPY --from=builder --chown=node:node /app/auth.ts ./auth.ts
+COPY --from=builder --chown=node:node /app/backend ./backend
+COPY --from=builder --chown=node:node /app/components ./components
+COPY --from=builder --chown=node:node /app/frontend ./frontend
+COPY --from=builder --chown=node:node /app/hooks ./hooks
+COPY --from=builder --chown=node:node /app/lib ./lib
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/styles ./styles
+COPY --from=builder --chown=node:node /app/specs ./specs
+COPY --from=builder --chown=node:node /app/templates ./templates
+COPY --from=builder --chown=node:node /app/types ./types
+COPY --from=builder --chown=node:node /app/validators ./validators
+COPY --from=builder --chown=node:node /app/scripts ./scripts
+# tsx-spawned workers (e.g. the Hermes reconciler) resolve `@aries/hermes-protocol`
+# from source at runtime via the tsconfig path → packages/aries-hermes-protocol/src.
+# Next.js bundles it into .next at build time, but the standalone tsx workers need
+# the raw package source present in the runner image.
+COPY --from=builder --chown=node:node /app/packages ./packages
+COPY --from=builder --chown=node:node /app/next-env.d.ts ./next-env.d.ts
+COPY --from=builder --chown=node:node /app/next.config.mjs ./next.config.mjs
+COPY --from=builder --chown=node:node /app/postcss.config.mjs ./postcss.config.mjs
+COPY --from=builder --chown=node:node /app/tailwind.config.ts ./tailwind.config.ts
+COPY --from=builder --chown=node:node /app/tsconfig.json ./tsconfig.json
+COPY --from=builder --chown=node:node /app/VERSION ./VERSION
+
+# Cache follows the writable data mount, including deployments overriding UID.
+RUN rm -rf /app/.next/cache \
+  && ln -s /data/next-cache /app/.next/cache
+
+USER node
+
+# Final-image gate runs as the real runtime user. Hermes stays root-owned and
+# non-writable while remaining executable through the shared PATH.
+RUN test "$(id -un)" = "node" \
+  && test "$(command -v hermes)" = "/opt/hermes/bin/hermes" \
+  && test "$(python -c 'from importlib.metadata import version; print(version("hermes-agent"))')" = "0.20.0" \
+  && hermes --version \
+  && hermes kanban --help >/dev/null \
+  && test "$(stat -c '%U:%G' /opt/hermes/bin/hermes)" = "root:root" \
+  && test ! -w /opt/hermes/bin/hermes \
+  && test ! -e /opt/hermes-bootstrap \
+  && test ! -e /tmp/hermes-agent.tar.gz \
+  && test ! -e /tmp/uv-cache
+
+EXPOSE 3000
+CMD ["npm", "run", "start"]

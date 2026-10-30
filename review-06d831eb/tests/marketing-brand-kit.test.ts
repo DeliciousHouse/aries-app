@@ -1,0 +1,933 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import { resolveProjectRoot } from './helpers/project-root';
+
+const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
+
+async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
+  const previousCodeRoot = process.env.CODE_ROOT;
+  const previousDataRoot = process.env.DATA_ROOT;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-brand-kit-'));
+
+  process.env.CODE_ROOT = PROJECT_ROOT;
+  process.env.DATA_ROOT = dataRoot;
+  process.env.ARTIFACT_PIPELINE_CWD = path.join(PROJECT_ROOT, 'lobster');
+
+  try {
+    return await run(dataRoot);
+  } finally {
+    if (previousCodeRoot === undefined) {
+      delete process.env.CODE_ROOT;
+    } else {
+      process.env.CODE_ROOT = previousCodeRoot;
+    }
+
+    if (previousDataRoot === undefined) {
+      delete process.env.DATA_ROOT;
+    } else {
+      process.env.DATA_ROOT = previousDataRoot;
+    }
+
+    if (previousPipelineCwd === undefined) {
+      delete process.env.ARTIFACT_PIPELINE_CWD;
+    } else {
+      process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
+    }
+
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+}
+
+function createFetchResponse(body: string, contentType: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'content-type': contentType,
+    },
+  });
+}
+
+function installBrandSiteFetchMock(): { restore: () => void; fetchImpl: typeof fetch } {
+  const originalFetch = globalThis.fetch;
+
+  const fakeFetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+
+    if (url === 'https://sugarandleather.com' || url === 'https://sugarandleather.com/') {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>Sugar &amp; Leather</title>
+            <meta content="Sugar & Leather" property="og:site_name" />
+            <meta content="/assets/social-card.jpg" property="og:image" />
+            <meta name="theme-color" content="#9c6b3e" />
+            <link href="https://cdn.sugarandleather.com/pages/home" rel="canonical" />
+            <link href="/assets/logo-mark.svg" rel="icon" />
+            <link href="https://fonts.googleapis.com" rel="preconnect" />
+            <link href="/assets/site.css" rel="stylesheet" />
+          </head>
+          <body>
+            <header>
+              <a href="https://instagram.com/sugarandleather">Instagram</a>
+              <a href="https://facebook.com/sugarandleather">Facebook</a>
+              <a href="https://shop.sugarandleather.com/collections/frontpage">Shop</a>
+              <img src="/assets/wordmark.png" alt="Sugar & Leather wordmark" />
+            </header>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8'
+      );
+    }
+
+    if (url === 'https://sugarandleather.com/assets/site.css') {
+      return createFetchResponse(
+        `:root {
+          --brand-primary: #9c6b3e;
+          --brand-secondary: #f3e9dd;
+          --brand-accent: #3d2410;
+        }
+        body {
+          font-family: "Manrope", sans-serif;
+          color: #2b190d;
+          background: #f3e9dd;
+        }
+        h1, h2, .display {
+          font-family: "Cormorant Garamond", serif;
+        }`,
+        'text/css; charset=utf-8'
+      );
+    }
+
+    if (url === 'https://fonts.googleapis.com') {
+      return createFetchResponse('', 'text/plain; charset=utf-8');
+    }
+
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+
+  // Also install as globalThis.fetch for callers (e.g. startSocialContentJob) that
+  // cannot receive fetchImpl via argument.
+  globalThis.fetch = fakeFetch as typeof globalThis.fetch;
+
+  return {
+    restore: () => { globalThis.fetch = originalFetch; },
+    fetchImpl: fakeFetch,
+  };
+}
+
+function installRenderedColorBrandSiteFetchMock(capture?: { calls: number }): { restore: () => void; fetchImpl: typeof fetch } {
+  const originalFetch = globalThis.fetch;
+
+  const fakeFetch = (async (input: RequestInfo | URL) => {
+    capture && (capture.calls += 1);
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+
+    if (url === 'https://sugarandleather.com/') {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>Sugar &amp; Leather</title>
+            <meta content="Sugar & Leather" property="og:site_name" />
+            <link href="https://sugarandleather.com/" rel="canonical" />
+            <link href="/_next/static/chunks/site.css" rel="stylesheet" />
+          </head>
+          <body class="font-sans">
+            <header>
+              <img src="/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75" alt="Sugar & Leather logo" />
+            </header>
+            <section>
+              <span class="text-transparent bg-clip-text bg-gradient-to-r from-[#F6339A] via-[#F6339A] via-[38%] to-[#A855F7]">Full Potential</span>
+              <a class="text-[#E60076]" href="https://instagram.com/sugarandleather">Instagram</a>
+            </section>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+
+    if (url === 'https://sugarandleather.com/_next/static/chunks/site.css') {
+      return createFetchResponse(
+        `:root {
+          --token-red: #fb2c36;
+          --token-orange: #fe6e00;
+          --token-green: #05df72;
+          --token-indigo: #625fff;
+          --token-purple: #a855f7;
+        }
+        body {
+          font-family: Inter, "Inter Fallback", sans-serif;
+        }`,
+        'text/css; charset=utf-8',
+      );
+    }
+
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+
+  // Also install as globalThis.fetch for callers that cannot receive fetchImpl.
+  globalThis.fetch = fakeFetch as typeof globalThis.fetch;
+
+  return {
+    restore: () => { globalThis.fetch = originalFetch; },
+    fetchImpl: fakeFetch,
+  };
+}
+
+test('extractBrandKitFromWebsite strips nested HTML markup from the brand name candidates', async () => {
+  // Regression: an Angular/React-rendered H1 can contain nested `<span>`s with
+  // inline `style` / `_ngcontent-*` attributes. The previous extractor returned
+  // inner HTML as the brand name, so the preview card showed raw `<span ...>`
+  // tags as the brand heading and as each font preview's sample text.
+  const brandUrl = 'https://nwaeventco.example';
+  const fakeFetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>NWA Event Co. | Home</title>
+            <link href="${brandUrl}/styles.css" rel="stylesheet" />
+          </head>
+          <body>
+            <h1>
+              <span _ngcontent-ng-c1473099053 style="font-family: 'Cinzel', serif;">Welcome to </span>
+              <span _ngcontent-ng-c1473099053 style="font-family: 'Cinzel Decorative', serif;">N</span>
+              <span _ngcontent-ng-c1473099053 style="font-family: 'Cinzel', serif;">WA Event Co.</span>
+            </h1>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    if (url === `${brandUrl}/styles.css`) {
+      return createFetchResponse(`body { font-family: "Cinzel", serif; }`, 'text/css');
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'nwaeventco',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+
+  assert.ok(brandKit.brand_name, 'brand_name should be extracted');
+  assert.doesNotMatch(brandKit.brand_name, /<\/?[a-z]/i, `brand_name leaked HTML: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /_ngcontent-/i, `brand_name leaked Angular marker: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /font-family/i, `brand_name leaked style attribute: ${brandKit.brand_name}`);
+});
+
+test('stripHtmlTags handles <script>/<style>/</svg>/</noscript> close-tag variants with whitespace or attributes', async () => {
+  // Regression for CodeQL "Bad HTML filtering regexp" alert. The narrow
+  // `<\/script>` pattern would miss `</script >` or `</script foo>`, so the
+  // script body would survive into brand_name as literal text. The site
+  // below nests a malicious-looking <script> inside the H1 using each
+  // close-tag variant.
+  const brandUrl = 'https://malformed-close.example';
+  const fakeFetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head><title>Malformed Co</title></head>
+          <body>
+            <h1>Real <script>alert('leak-1')</script > Brand <style foo>body{display:none}</style > <noscript >tracker</noscript x> <svg attr><path/></svg > Co</h1>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'malformed-co',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  assert.doesNotMatch(brandKit.brand_name, /alert\(/, `script body leaked: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /display:none/, `style body leaked: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /tracker/, `noscript body leaked: ${brandKit.brand_name}`);
+});
+
+test('extractBrandKitFromWebsite strips entity-encoded HTML markup from the brand name', async () => {
+  // Regression for PR #135 review: if tag-stripping runs BEFORE entity decoding,
+  // `&lt;span&gt;...` survives the tag pass and becomes literal `<span>` text
+  // after decode, re-introducing the exact raw-HTML leak stripHtmlTags exists
+  // to prevent. Entities must be decoded first, then tags stripped.
+  const brandUrl = 'https://entity-nwa.example';
+  const fakeFetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head><title>Entity Co</title></head>
+          <body>
+            <h1>&lt;span _ngcontent-x style=&quot;font-family:Cinzel&quot;&gt;Welcome to &lt;/span&gt;&lt;span&gt;Entity Co&lt;/span&gt;</h1>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'entity-nwa',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  assert.doesNotMatch(brandKit.brand_name, /<\/?[a-z]/i, `brand_name leaked literal HTML: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /&lt;|&gt;|&quot;/i, `brand_name leaked raw entities: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /_ngcontent-/i, `brand_name leaked Angular marker: ${brandKit.brand_name}`);
+});
+
+test('normalizePersistedBrandKit sanitizes HTML markup in a cached brand_name on load', async () => {
+  await withRuntimeEnv(async () => {
+    const { saveTenantBrandKit, loadTenantBrandKit } = await import('../backend/marketing/brand-kit');
+    saveTenantBrandKit('nwaeventco', {
+      tenant_id: 'nwaeventco',
+      source_url: 'https://nwaeventco.example',
+      canonical_url: 'https://nwaeventco.example',
+      brand_name:
+        '<span _ngcontent-ng-c1473099053 style="font-family: \'Cinzel\', serif;">Welcome to </span>' +
+        '<span _ngcontent-ng-c1473099053>N</span>' +
+        '<span _ngcontent-ng-c1473099053>WA Event Co.</span>',
+      logo_urls: [],
+      colors: { primary: null, secondary: null, accent: null, palette: [] },
+      font_families: [],
+      external_links: [],
+      extracted_at: new Date().toISOString(),
+      brand_voice_summary: null,
+      offer_summary: null,
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
+    });
+    const loaded = await loadTenantBrandKit('nwaeventco');
+    assert.ok(loaded);
+    assert.doesNotMatch(loaded!.brand_name, /<\/?[a-z]/i);
+    assert.doesNotMatch(loaded!.brand_name, /_ngcontent-/i);
+  });
+});
+
+test('sanitizeBrandKitSummaryText (cleanSentenceCandidate) strips malformed close-tag variants', async () => {
+  // Regression for follow-up to PR #135: cleanSentenceCandidate uses the same
+  // script/style/noscript/svg stripping as stripHtmlTags but was not yet
+  // hardened against close-tag variants with whitespace or attributes.
+  const { sanitizeBrandKitSummaryText } = await import('../backend/marketing/brand-kit');
+
+  // Test malformed close tags in brand-voice/offer-summary passages
+  const input = 'Real brand <script>malicious</script > value <style foo>unwanted</style > content <noscript >tracking</noscript x> here <svg attr>graphic</svg >';
+  const result = sanitizeBrandKitSummaryText(input);
+
+  assert.ok(result, 'should return non-null result');
+  assert.doesNotMatch(result!, /malicious/, 'script body should be stripped');
+  assert.doesNotMatch(result!, /unwanted/, 'style body should be stripped');
+  assert.doesNotMatch(result!, /tracking/, 'noscript body should be stripped');
+  assert.doesNotMatch(result!, /graphic/, 'svg body should be stripped');
+  assert.match(result!, /Real brand/, 'legitimate content should remain');
+  assert.match(result!, /value/, 'legitimate content should remain');
+  assert.match(result!, /content/, 'legitimate content should remain');
+  assert.match(result!, /here/, 'legitimate content should remain');
+});
+
+test('extractInlineCss handles <style> close-tag variants with whitespace or attributes', async () => {
+  // Regression for follow-up to PR #135: extractInlineCss was not hardened
+  // against close-tag variants. While less critical (it extracts CSS for
+  // palette/font inference, not filtering for XSS), consistency with
+  // stripHtmlTags prevents incomplete extraction.
+  const brandUrl = 'https://malformed-style.example';
+  const fakeFetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>Malformed Style Co</title>
+            <style>body { background: #ff0000; }</style>
+            <style foo>body { color: #00ff00; }</style >
+          </head>
+          <body><h1>Test</h1></body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'malformed-style-co',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  // The hardened pattern should extract both CSS blocks despite malformed close tags
+  const paletteValues = brandKit.colors.palette.map((color) => color.toLowerCase());
+  assert.ok(paletteValues.includes('#ff0000'), 'should extract color from the well-formed style block');
+  assert.ok(paletteValues.includes('#00ff00'), 'should extract color from the malformed-close style block');
+});
+
+test('extractBrandKitFromWebsite (via htmlToText) strips malformed close-tag variants from brand voice', async () => {
+  // Regression for follow-up to PR #135: htmlToText (used by brand-voice and
+  // offer-summary extraction) was not hardened against close-tag variants.
+  const brandUrl = 'https://malformed-voice.example';
+  const fakeFetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>Voice Co</title>
+            <meta name="description" content="Official Voice Co brand description for tests.">
+          </head>
+          <body>
+            <h1>Voice Co Heading</h1>
+            <p>Authentic brand voice here.</p>
+            <script>alert('should-be-removed')</script >
+            <p>More brand messaging.</p>
+            <style foo>body{display:none}</style >
+            <noscript >tracker</noscript x>
+            <svg attr><path/></svg >
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'malformed-voice-co',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  // brand_voice_summary uses htmlToText internally — deriveBrandVoiceSummary
+  // requires a meta description or h1/h2 to return non-null.
+  assert.ok(brandKit.brand_voice_summary, 'brand_voice_summary should be non-null when meta description and h1 are present');
+  assert.doesNotMatch(brandKit.brand_voice_summary, /alert\(/, 'script body should not leak into brand voice');
+  assert.doesNotMatch(brandKit.brand_voice_summary, /display:none/, 'style body should not leak into brand voice');
+  assert.doesNotMatch(brandKit.brand_voice_summary, /tracker/, 'noscript body should not leak into brand voice');
+});
+
+test('extractBrandKitFromWebsite derives logo, palette, fonts, and social links from the canonical brand site', async () => {
+  const { restore: restoreFetch, fetchImpl } = installBrandSiteFetchMock();
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: 'sugarandleather',
+      brandUrl: 'https://sugarandleather.com',
+      fetchImpl,
+    });
+
+    assert.equal(brandKit.tenant_id, 'sugarandleather');
+    assert.equal(brandKit.source_url, 'https://sugarandleather.com');
+    assert.equal(brandKit.brand_name, 'Sugar & Leather');
+    assert.equal(brandKit.canonical_url, 'https://cdn.sugarandleather.com/pages/home');
+    assert.deepEqual(brandKit.logo_urls, [
+      'https://sugarandleather.com/assets/wordmark.png',
+      'https://sugarandleather.com/assets/logo-mark.svg',
+    ]);
+    assert.equal(brandKit.colors.primary, '#9c6b3e');
+    assert.equal(brandKit.colors.secondary, '#f3e9dd');
+    assert.equal(brandKit.colors.accent, '#3d2410');
+    assert.deepEqual(brandKit.font_families, ['Manrope', 'Cormorant Garamond']);
+    assert.match(brandKit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(brandKit.brand_voice_summary, null);
+    assert.equal(brandKit.offer_summary, null);
+    assert.deepEqual(brandKit.external_links, [
+      { platform: 'instagram', url: 'https://instagram.com/sugarandleather' },
+      { platform: 'facebook', url: 'https://facebook.com/sugarandleather' },
+      { platform: 'shop.sugarandleather.com', url: 'https://shop.sugarandleather.com/collections/frontpage' },
+    ]);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('startSocialContentJob persists a reusable tenant brand kit and stores a runtime reference snapshot', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { restore: restoreFetch } = installBrandSiteFetchMock();
+
+    try {
+      const orchestrator = await import('../backend/marketing/orchestrator');
+      orchestrator.__setMarketingExecutionPortForTests(() => ({
+        name: 'hermes',
+        runPipeline: async () => ({ kind: 'submitted', provider: 'hermes', ariesRunId: 'run-research' }),
+        resumePipeline: async () => { throw new Error('not used'); },
+        submitNextStage: async () => { throw new Error('not used'); },
+        getCallbackUrl: () => 'https://aries.example.com/callback',
+        getSessionKey: () => 'test-session',
+        submitRawRun: async () => { throw new Error('not used'); },
+      }));
+
+      const result = await orchestrator.startSocialContentJob({
+        tenantId: 'sugarandleather',
+        jobType: 'weekly_social_content',
+        payload: {
+          brandUrl: 'https://sugarandleather.com/',
+          businessType: 'leather goods retail',
+          competitorUrl: 'https://betterup.com',
+        },
+      });
+
+      const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${result.jobId}.json`);
+      const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
+      const brandKitFile = path.join(dataRoot, 'generated', 'validated', 'sugarandleather', 'brand-kit.json');
+      const persistedBrandKit = JSON.parse(await readFile(brandKitFile, 'utf8')) as any;
+
+      assert.equal(runtimeDoc.brand_kit.source_url, 'https://sugarandleather.com/');
+      assert.equal(runtimeDoc.brand_kit.brand_name, 'Sugar & Leather');
+      assert.equal(runtimeDoc.brand_kit.path, brandKitFile);
+      assert.equal(runtimeDoc.brand_kit.canonical_url, 'https://cdn.sugarandleather.com/pages/home');
+      assert.equal(runtimeDoc.brand_kit.colors.primary, '#9c6b3e');
+      assert.deepEqual(runtimeDoc.brand_kit.font_families, ['Manrope', 'Cormorant Garamond']);
+      assert.match(runtimeDoc.brand_kit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
+      assert.equal(persistedBrandKit.tenant_id, 'sugarandleather');
+      assert.equal(persistedBrandKit.brand_name, 'Sugar & Leather');
+      assert.equal(persistedBrandKit.source_url, 'https://sugarandleather.com/');
+      assert.equal(persistedBrandKit.canonical_url, 'https://cdn.sugarandleather.com/pages/home');
+      assert.equal(persistedBrandKit.colors.accent, '#3d2410');
+      assert.match(persistedBrandKit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
+    } finally {
+      const orchestrator = await import('../backend/marketing/orchestrator');
+      orchestrator.__setMarketingExecutionPortForTests(null);
+      restoreFetch();
+    }
+  });
+});
+
+test('extractAndSaveTenantBrandKit reuses a fresh tenant brand kit instead of refetching the website', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
+    const filePath = tenantBrandKitPath('sugarandleather');
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        tenant_id: 'sugarandleather',
+        source_url: 'https://sugarandleather.com',
+        canonical_url: 'https://sugarandleather.com',
+        brand_name: 'Stored Sugar & Leather',
+        logo_urls: ['https://sugarandleather.com/assets/stored-logo.svg'],
+        colors: {
+          primary: '#111111',
+          secondary: '#222222',
+          accent: '#333333',
+          palette: ['#111111', '#222222', '#333333'],
+        },
+        font_families: ['Stored Serif'],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+      }, null, 2)
+    );
+
+    let fetchCalls = 0;
+    const { brandKit } = await extractAndSaveTenantBrandKit({
+      tenantId: 'sugarandleather',
+      brandUrl: 'https://sugarandleather.com',
+      fetchImpl: (async () => {
+        fetchCalls += 1;
+        return new Response('unexpected', { status: 500 });
+      }) as unknown as typeof fetch,
+    });
+
+    assert.equal(dataRoot.length > 0, true);
+    assert.equal(fetchCalls, 0);
+    assert.equal(brandKit.brand_name, 'Stored Sugar & Leather');
+    assert.deepEqual(brandKit.font_families, ['Stored Serif']);
+  });
+});
+
+test('extractAndSaveTenantBrandKit normalizes noisy persisted brand-kit signals before reuse', async () => {
+  await withRuntimeEnv(async () => {
+    const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
+    const filePath = tenantBrandKitPath('2');
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        tenant_id: '2',
+        source_url: 'https://sugarandleather.com/',
+        canonical_url: 'https://sugarandleather.com/',
+        brand_name: 'Sugar & Leather',
+        logo_urls: [
+          'https://sugarandleather.com/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75',
+          'https://sugarandleather.com/_next/image?url=%2Fimages%2Ftroy.webp&w=3840&q=75',
+          'https://sugarandleather.com/_next/image?url=%2Fimages%2Faudrey-new.webp&w=3840&q=75',
+        ],
+        colors: {
+          primary: '#f6339a',
+          secondary: '#a855f7',
+          accent: '#e60076',
+          palette: ['#f6339a', '#a855f7', '#e60076', '#00000026', '#ffffff1a'],
+        },
+        font_families: [
+          'Inter',
+          'Inter Fallback',
+          'Apple Color Emoji',
+          'SFMono-Regular',
+          'monospace)',
+        ],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+        brand_voice_summary: null,
+        offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
+      }, null, 2),
+    );
+
+    let fetchCalls = 0;
+    const { brandKit } = await extractAndSaveTenantBrandKit({
+      tenantId: '2',
+      brandUrl: 'https://sugarandleather.com/',
+      fetchImpl: (async () => {
+        fetchCalls += 1;
+        return new Response('unexpected', { status: 500 });
+      }) as unknown as typeof fetch,
+    });
+    const persisted = JSON.parse(await readFile(filePath, 'utf8')) as {
+      logo_urls: string[];
+      colors: { palette: string[] };
+      font_families: string[];
+    };
+
+    assert.equal(fetchCalls, 0);
+    assert.deepEqual(brandKit.logo_urls, ['https://sugarandleather.com/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75']);
+    assert.deepEqual(brandKit.font_families, ['Inter']);
+    assert.deepEqual(brandKit.colors.palette, ['#f6339a', '#a855f7', '#e60076']);
+    assert.deepEqual(persisted.logo_urls, brandKit.logo_urls);
+    assert.deepEqual(persisted.font_families, brandKit.font_families);
+    assert.deepEqual(persisted.colors.palette, brandKit.colors.palette);
+  });
+});
+
+test('extractBrandKitFromWebsite prefers rendered HTML brand colors over raw stylesheet token dumps', async () => {
+  const { restore: restoreFetch, fetchImpl } = installRenderedColorBrandSiteFetchMock();
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: '2',
+      brandUrl: 'https://sugarandleather.com/',
+      fetchImpl,
+    });
+
+    assert.deepEqual(brandKit.logo_urls, ['https://sugarandleather.com/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75']);
+    assert.deepEqual(brandKit.colors.palette, ['#f6339a', '#a855f7', '#e60076']);
+    assert.equal(brandKit.colors.primary, '#f6339a');
+    assert.equal(brandKit.colors.secondary, '#a855f7');
+    assert.equal(brandKit.colors.accent, '#e60076');
+    assert.deepEqual(brandKit.font_families, ['Inter']);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('extractAndSaveTenantBrandKit refreshes fresh low-quality rainbow palettes instead of reusing them', async () => {
+  await withRuntimeEnv(async () => {
+    const capture = { calls: 0 };
+    const { restore: restoreFetch, fetchImpl } = installRenderedColorBrandSiteFetchMock(capture);
+
+    try {
+      const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
+      const filePath = tenantBrandKitPath('2');
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(
+        filePath,
+        JSON.stringify({
+          tenant_id: '2',
+          source_url: 'https://sugarandleather.com/',
+          canonical_url: 'https://sugarandleather.com/',
+          brand_name: 'Sugar & Leather',
+          logo_urls: ['https://sugarandleather.com/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75'],
+          colors: {
+            primary: '#fb2c36',
+            secondary: '#fe6e00',
+            accent: '#05df72',
+            palette: ['#fb2c36', '#fe6e00', '#05df72', '#312c85', '#a855f7'],
+          },
+          font_families: ['Inter'],
+          external_links: [],
+          extracted_at: new Date().toISOString(),
+          brand_voice_summary: null,
+          offer_summary: null,
+          positioning: null,
+          audience: null,
+          tone_of_voice: null,
+          style_vibe: null,
+        }, null, 2),
+      );
+
+      const { brandKit } = await extractAndSaveTenantBrandKit({
+        tenantId: '2',
+        brandUrl: 'https://sugarandleather.com/',
+        fetchImpl,
+      });
+
+      assert.equal(capture.calls > 0, true);
+      assert.deepEqual(brandKit.colors.palette, ['#f6339a', '#a855f7', '#e60076']);
+      assert.equal(brandKit.colors.primary, '#f6339a');
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+test('extractAndSaveTenantBrandKit refreshes a stale tenant brand kit from the canonical website', async () => {
+  await withRuntimeEnv(async () => {
+    const { restore: restoreFetch, fetchImpl } = installBrandSiteFetchMock();
+
+    try {
+      const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
+      const filePath = tenantBrandKitPath('sugarandleather');
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(
+        filePath,
+        JSON.stringify({
+          tenant_id: 'sugarandleather',
+          source_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_name: 'Stale Sugar & Leather',
+          logo_urls: [],
+          colors: {
+            primary: null,
+            secondary: null,
+            accent: null,
+            palette: [],
+          },
+          font_families: [],
+          external_links: [],
+          extracted_at: '2020-01-01T00:00:00.000Z',
+        }, null, 2)
+      );
+
+      const { brandKit } = await extractAndSaveTenantBrandKit({
+        tenantId: 'sugarandleather',
+        brandUrl: 'https://sugarandleather.com',
+        fetchImpl,
+      });
+
+      assert.equal(brandKit.brand_name, 'Sugar & Leather');
+      assert.equal(brandKit.colors.primary, '#9c6b3e');
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+test('extractAndSaveTenantBrandKit does not reuse a fresh fallback-style brand kit with no extracted signals', async () => {
+  await withRuntimeEnv(async () => {
+    const { restore: restoreFetch, fetchImpl } = installBrandSiteFetchMock();
+
+    try {
+      const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
+      const filePath = tenantBrandKitPath('sugarandleather');
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(
+        filePath,
+        JSON.stringify({
+          tenant_id: 'sugarandleather',
+          source_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_name: 'Sugarandleather',
+          logo_urls: [],
+          colors: {
+            primary: null,
+            secondary: null,
+            accent: null,
+            palette: [],
+          },
+          font_families: [],
+          external_links: [],
+          extracted_at: new Date().toISOString(),
+        }, null, 2)
+      );
+
+      const { brandKit } = await extractAndSaveTenantBrandKit({
+        tenantId: 'sugarandleather',
+        brandUrl: 'https://sugarandleather.com',
+        fetchImpl,
+      });
+
+      assert.equal(brandKit.brand_name, 'Sugar & Leather');
+      assert.equal(brandKit.logo_urls.length > 0, true);
+      assert.equal(brandKit.font_families.length > 0, true);
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+test('saveSocialContentJobRuntime rejects brand campaign runtime documents without a brand kit snapshot or canonical source URL', async () => {
+  await withRuntimeEnv(async () => {
+    const { createSocialContentJobRuntimeDocument, saveSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
+    const validDoc = createSocialContentJobRuntimeDocument({
+      jobId: 'mkt_brandkit_guard',
+      tenantId: 'sugarandleather',
+        payload: {
+          brandUrl: 'https://sugarandleather.com',
+          competitorUrl: 'https://betterup.com',
+        },
+      brandKit: {
+        path: '/tmp/brand-kit.json',
+        source_url: 'https://sugarandleather.com',
+        canonical_url: 'https://sugarandleather.com',
+        brand_name: 'Sugar & Leather',
+        logo_urls: [],
+        colors: {
+          primary: '#9c6b3e',
+          secondary: '#f3e9dd',
+          accent: '#3d2410',
+          palette: ['#9c6b3e', '#f3e9dd', '#3d2410'],
+        },
+        font_families: ['Manrope'],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+        brand_voice_summary: null,
+        offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
+      },
+    });
+
+    const missingBrandKit = {
+      ...validDoc,
+      brand_kit: null,
+    } as any;
+    const missingBrandUrl = {
+      ...validDoc,
+      inputs: {
+        ...validDoc.inputs,
+        brand_url: '',
+      },
+    };
+    const mismatchedBrandSource = {
+      ...validDoc,
+      brand_kit: {
+        ...validDoc.brand_kit,
+        source_url: 'https://other-brand.example',
+      },
+    };
+    const invalidExtractedAt = {
+      ...validDoc,
+      brand_kit: {
+        ...validDoc.brand_kit,
+        extracted_at: 'not-a-date',
+      },
+    };
+
+    assert.throws(
+      () => saveSocialContentJobRuntime('mkt_brandkit_guard', missingBrandKit),
+      /invalid_marketing_runtime_document:brand_kit_required/i
+    );
+    assert.throws(
+      () => saveSocialContentJobRuntime('mkt_brandkit_guard', missingBrandUrl as any),
+      /invalid_marketing_runtime_document:brand_url_required/i
+    );
+    assert.throws(
+      () => saveSocialContentJobRuntime('mkt_brandkit_guard', mismatchedBrandSource as any),
+      /invalid_marketing_runtime_document:brand_kit_source_mismatch/i
+    );
+    assert.throws(
+      () => saveSocialContentJobRuntime('mkt_brandkit_guard', invalidExtractedAt as any),
+      /invalid_marketing_runtime_document:brand_kit_extracted_at_invalid/i
+    );
+  });
+});
+
+test('marketing runtime schema requires a brand kit snapshot and allows approval resume tokens', async () => {
+  const schemaPath = path.join(PROJECT_ROOT, 'specs', 'marketing_job_state_schema.v1.json');
+  const schema = JSON.parse(await readFile(schemaPath, 'utf8')) as any;
+
+  assert.equal(schema.required.includes('brand_kit'), true);
+  assert.equal(schema.required.includes('inputs'), true);
+  assert.equal(schema.properties.brand_kit.$ref, '#/$defs/brandKitReference');
+  assert.equal(schema.$defs.brandKitReference.properties.source_url.minLength, 1);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(schema.$defs.approvalCheckpoint.properties, 'resume_token'),
+    true
+  );
+});
+
+test('loadTenantBrandKit rejects malformed persisted brand kit state', async () => {
+  await withRuntimeEnv(async () => {
+    const { loadTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
+    const filePath = tenantBrandKitPath('sugarandleather');
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        tenant_id: 'sugarandleather',
+        source_url: 'https://sugarandleather.com',
+        canonical_url: 'https://sugarandleather.com',
+        logo_urls: [],
+        colors: {
+          primary: '#9c6b3e',
+          secondary: '#f3e9dd',
+          accent: '#3d2410',
+          palette: ['#9c6b3e', '#f3e9dd', '#3d2410'],
+        },
+        font_families: [],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+      }, null, 2)
+    );
+
+    await assert.rejects(
+      () => loadTenantBrandKit('sugarandleather'),
+      /invalid_tenant_brand_kit:brand_name_required/i
+    );
+  });
+});

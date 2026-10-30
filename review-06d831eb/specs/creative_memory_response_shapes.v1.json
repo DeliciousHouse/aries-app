@@ -1,0 +1,13 @@
+{
+  "success": {
+    "status": "ok",
+    "data": {}
+  },
+  "error": {
+    "status": "error",
+    "reason": "context_budget_exceeded",
+    "message": "...",
+    "details": {},
+    "field_errors": []
+  }
+}

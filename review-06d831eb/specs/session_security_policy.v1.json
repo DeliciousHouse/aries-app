@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/session_security_policy.v1.json",
+  "artifact_name": "session_security_policy",
+  "artifact_type": "security_policy_contract",
+  "schema_version": "1.0.0",
+  "policy_version": "1.0.0",
+  "scope": {
+    "applies_to": [
+      "web_session",
+      "api_session",
+      "refresh_session",
+      "approval_session"
+    ],
+    "environment_tiers": [
+      "development",
+      "staging",
+      "production"
+    ],
+    "contract_mode": "policy_only_no_implementation"
+  },
+  "classification": {
+    "session_identifier": "confidential",
+    "access_token": "restricted",
+    "refresh_token": "restricted",
+    "csrf_token": "internal",
+    "auth_cookie": "restricted"
+  },
+  "session_policy": {
+    "session_id": {
+      "format": "opaque_random",
+      "minimum_entropy_bits": 128,
+      "guessability_requirement": "non_enumerable",
+      "must_not_encode": [
+        "tenant_id",
+        "user_id",
+        "email",
+        "role",
+        "timestamp_plaintext"
+      ],
+      "rotation_triggers": [
+        "login_success",
+        "privilege_change",
+        "password_change",
+        "mfa_enrollment",
+        "suspicious_activity",
+        "manual_revoke"
+      ]
+    },
+    "session_binding": {
+      "bind_to_user_id": true,
+      "bind_to_tenant_id": true,
+      "bind_to_auth_context": true,
+      "ip_locking": "off",
+      "user_agent_consistency": "advisory"
+    },
+    "concurrency": {
+      "max_active_sessions_per_user": 5,
+      "max_active_sessions_per_user_per_device_class": 3,
+      "on_limit_exceeded": "revoke_oldest"
+    }
+  },
+  "cookie_policy": {
+    "required_cookie_attributes": {
+      "secure": true,
+      "http_only": true,
+      "same_site": "Lax",
+      "path": "/",
+      "domain_strategy": "host_only",
+      "partitioned": false
+    },
+    "cookie_names": {
+      "auth_session_cookie": "__Host-aries_session",
+      "refresh_session_cookie": "__Host-aries_refresh",
+      "csrf_cookie": "aries_csrf"
+    },
+    "allowed_same_site_values": [
+      "Strict",
+      "Lax",
+      "None"
+    ],
+    "cross_site_rule": {
+      "allow_same_site_none_only_with_secure": true,
+      "default_same_site": "Lax"
+    }
+  },
+  "token_policy": {
+    "access_token": {
+      "type": "bearer",
+      "transport": [
+        "authorization_header"
+      ],
+      "format": "jwt_or_opaque",
+      "max_ttl_seconds": 900,
+      "required_claims_or_fields": [
+        "sub",
+        "sid",
+        "tenant_id",
+        "scope",
+        "iat",
+        "exp",
+        "jti"
+      ],
+      "forbidden_claims_or_fields": [
+        "password",
+        "secret",
+        "api_key"
+      ],
+      "clock_skew_tolerance_seconds": 60
+    },
+    "refresh_token": {
+      "type": "bearer",
+      "format": "opaque_random",
+      "max_ttl_seconds": 2592000,
+      "single_use_rotation": true,
+      "reuse_detection": {
+        "enabled": true,
+        "on_detected_reuse": [
+          "revoke_refresh_token_family",
+          "revoke_associated_sessions",
+          "raise_security_event"
+        ]
+      }
+    },
+    "csrf_token": {
+      "required_for": [
+        "state_changing_requests_with_cookie_auth"
+      ],
+      "transport": [
+        "x-csrf-token_header"
+      ],
+      "comparison_rule": "constant_time_compare",
+      "max_age_seconds": 28800
+    }
+  },
+  "timeout_policy": {
+    "idle_timeout_seconds": 1800,
+    "absolute_timeout_seconds": 43200,
+    "reauthentication_window_seconds": 14400,
+    "step_up_auth_required_for": [
+      "approval_action",
+      "credential_change",
+      "session_export",
+      "token_scope_elevation"
+    ],
+    "grace_period_seconds": 120,
+    "renewal_constraints": {
+      "renew_idle_timeout_on_activity": true,
+      "absolute_timeout_non_extendable": true
+    }
+  },
+  "revocation_policy": {
+    "supported_revocation_modes": [
+      "single_session",
+      "all_user_sessions",
+      "tenant_scope_sessions",
+      "refresh_token_family"
+    ],
+    "propagation_sla_seconds": 60,
+    "deny_list_ttl_seconds": 43200
+  },
+  "transport_and_storage_policy": {
+    "tls_required": true,
+    "minimum_tls_version": "1.2",
+    "hsts_required": true,
+    "token_storage_client": {
+      "access_token": "memory_only",
+      "refresh_token": "http_only_cookie_only",
+      "forbidden_storage_locations": [
+        "localStorage",
+        "sessionStorage",
+        "url_query",
+        "url_fragment"
+      ]
+    },
+    "server_log_redaction": {
+      "enabled": true,
+      "redacted_fields": [
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "access_token",
+        "refresh_token",
+        "csrf_token"
+      ]
+    }
+  },
+  "monitoring_and_response": {
+    "security_events": [
+      "session_created",
+      "session_revoked",
+      "token_refresh",
+      "refresh_reuse_detected",
+      "csrf_validation_failed",
+      "session_timeout",
+      "authz_scope_escalation_attempt"
+    ],
+    "minimum_retention_days": 30,
+    "alert_thresholds": {
+      "refresh_reuse_detected_per_hour": 3,
+      "csrf_validation_failed_per_minute": 20,
+      "session_creation_anomaly_stddev": 3
+    }
+  },
+  "compliance_invariants": [
+    {
+      "id": "SSI-001",
+      "rule": "All authentication cookies MUST set Secure=true and HttpOnly=true in every environment except explicit local development override.",
+      "testable_expression": "cookie_policy.required_cookie_attributes.secure == true && cookie_policy.required_cookie_attributes.http_only == true"
+    },
+    {
+      "id": "SSI-002",
+      "rule": "Access token TTL MUST be <= 900 seconds.",
+      "testable_expression": "token_policy.access_token.max_ttl_seconds <= 900"
+    },
+    {
+      "id": "SSI-003",
+      "rule": "Refresh token rotation MUST be single-use with reuse detection enabled.",
+      "testable_expression": "token_policy.refresh_token.single_use_rotation == true && token_policy.refresh_token.reuse_detection.enabled == true"
+    },
+    {
+      "id": "SSI-004",
+      "rule": "Absolute session timeout MUST be non-extendable.",
+      "testable_expression": "timeout_policy.renewal_constraints.absolute_timeout_non_extendable == true"
+    },
+    {
+      "id": "SSI-005",
+      "rule": "Sensitive auth artifacts MUST be redacted from logs.",
+      "testable_expression": "transport_and_storage_policy.server_log_redaction.enabled == true"
+    }
+  ],
+  "non_goals": [
+    "No handler, middleware, database, or cache implementation details.",
+    "No API endpoint redesign or request/response schema changes to validated bootstrap contracts.",
+    "No vendor-specific SDK instructions."
+  ]
+}

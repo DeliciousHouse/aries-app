@@ -1,0 +1,623 @@
+# Historical regression fixture only. Never copy back into GitHub Actions or
+# execute on ubuntu-docker. See docs/runbooks/ubuntu-docker-release.md.
+name: Deploy
+
+# Historical operational contract:
+# - Pushes to master build/publish and deploy the exact merge commit SHA.
+# - Pushes from deliberately merged PRs trigger this workflow through the normal
+#   protected-branch path.
+# - Manual workflow_dispatch deploys accept an explicit image_tag (SHA or other tag).
+# - If package linkage/permissions are not ready for GITHUB_TOKEN, set GHCR_WORKFLOW_TOKEN.
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: GHCR image tag to deploy
+        required: true
+        type: string
+      git_ref:
+        description: Optional git ref to check out on the deploy host
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: aries-app
+  STATIC_PUSH_BRANCH: master
+  DEFAULT_BRANCH: ${{ vars.DEFAULT_BRANCH }}
+  DEPLOY_PATH: /home/node/aries-app
+  SERVICE_NAME: aries-app
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - name: Validate branch wiring
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DEFAULT_BRANCH}" ]]; then
+            echo "ERROR: Repository variable DEFAULT_BRANCH must be set." >&2
+            exit 1
+          fi
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            if [[ "${STATIC_PUSH_BRANCH}" != "${DEFAULT_BRANCH}" ]]; then
+              echo "ERROR: Workflow push branch (${STATIC_PUSH_BRANCH}) does not match DEFAULT_BRANCH (${DEFAULT_BRANCH})." >&2
+              exit 1
+            fi
+            if [[ "${REF_NAME}" != "${DEFAULT_BRANCH}" ]]; then
+              echo "ERROR: Push deploy received ${REF_NAME}, expected ${DEFAULT_BRANCH}." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Resolve deploy target
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+          INPUT_GIT_REF: ${{ inputs.git_ref }}
+          CURRENT_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          # GHCR image paths must be lowercase; github.repository_owner preserves org casing (e.g. DeliciousHouse).
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            image_tag="${CURRENT_SHA}"
+            checkout_ref="${CURRENT_SHA}"
+          else
+            image_tag="${INPUT_IMAGE_TAG}"
+            if [[ -z "${image_tag}" ]]; then
+              echo "ERROR: image_tag is required for manual deploys." >&2
+              exit 1
+            fi
+            if [[ -n "${INPUT_GIT_REF}" ]]; then
+              checkout_ref="${INPUT_GIT_REF}"
+            elif [[ "${image_tag}" =~ ^[0-9a-f]{40}$ ]]; then
+              checkout_ref="${image_tag}"
+            else
+              echo "ERROR: Manual deploys require git_ref unless image_tag is a full commit SHA." >&2
+              exit 1
+            fi
+          fi
+
+          image_ref="${REGISTRY}/${owner_lc}/${IMAGE_NAME}:${image_tag}"
+          echo "image_tag=${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
+          echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_WORKFLOW_TOKEN || github.token }}
+
+      - name: Checkout deploy source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.resolve.outputs.checkout_ref }}
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          name: aries-app-deploy
+          cleanup: false
+
+      - name: Publish exact deploy image
+        env:
+          TARGET_IMAGE_TAG: ${{ steps.resolve.outputs.image_tag }}
+          GHCR_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          DEFAULT_BRANCH_NAME: ${{ github.event.repository.default_branch }}
+          PUBLISH_SHA_ONLY: "1"
+          # Production runs amd64 only. Skip arm64 to avoid QEMU emulation cost
+          # (10-20x slower) on x86_64 self-hosted runners.
+          PLATFORMS: linux/amd64
+        run: |
+          set -euo pipefail
+          if [[ ! "${TARGET_IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Skipping image publish for non-SHA tag ${TARGET_IMAGE_TAG}; assuming it already exists."
+            exit 0
+          fi
+
+          checkout_sha="$(git rev-parse HEAD)"
+          if [[ "${checkout_sha}" != "${TARGET_IMAGE_TAG}" ]]; then
+            echo "ERROR: Ref checkout ${checkout_sha} does not match target image tag ${TARGET_IMAGE_TAG}." >&2
+            exit 1
+          fi
+
+          default_branch="${DEFAULT_BRANCH_NAME:-master}"
+          git fetch --no-tags origin "${default_branch}"
+          default_head="$(git rev-parse "origin/${default_branch}")"
+          publish_sha_only=0
+          if [[ "${TARGET_IMAGE_TAG}" != "${default_head}" ]]; then
+            publish_sha_only=1
+            echo "Publishing only ${TARGET_IMAGE_TAG}; not moving mutable aliases because origin/${default_branch} is ${default_head}."
+          else
+            echo "Publishing ${TARGET_IMAGE_TAG} plus ${default_branch}/latest aliases because it is the current default branch head."
+          fi
+
+          PUBLISH_SHA_ONLY="${publish_sha_only}" ./scripts/release/publish-image.sh
+
+      - name: Deploy on host
+        env:
+          TARGET_IMAGE: ${{ steps.resolve.outputs.image_ref }}
+          TARGET_CHECKOUT_REF: ${{ steps.resolve.outputs.checkout_ref }}
+          BUILDX_BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+          WORKFLOW_GIT_TOKEN: ${{ secrets.GHCR_WORKFLOW_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+
+          # --- Disk hygiene: reclaim stale Docker artifacts before the preflight ---
+          # Scope both cleanup paths narrowly: Buildx cache belongs to the builder
+          # selected above, and image tags must belong to TARGET_IMAGE's registry
+          # repository. Keep seven days, the newest three release images, and every
+          # image referenced by any container. Exact SHA tags remain re-pullable.
+          target_image_repository="${TARGET_IMAGE%:*}"
+          cleanup_cutoff_epoch=""
+          if ! cleanup_now_epoch="$(date -u +%s)" || [[ ! "${cleanup_now_epoch}" =~ ^[0-9]+$ ]]; then
+            echo "WARNING: unable to determine the Docker cleanup age cutoff; skipping image cleanup and continuing to disk preflight." >&2
+          else
+            cleanup_cutoff_epoch=$(( cleanup_now_epoch - 168 * 60 * 60 ))
+          fi
+
+          if [[ -z "${BUILDX_BUILDER_NAME}" ]]; then
+            echo "WARNING: setup-buildx-action did not expose a builder name; skipping cache cleanup and continuing to disk preflight." >&2
+          elif ! docker buildx prune \
+            --builder "${BUILDX_BUILDER_NAME}" \
+            --all \
+            --force \
+            --filter "until=168h" \
+            --keep-storage=2GB; then
+            echo "WARNING: selected Buildx builder cleanup failed; continuing to disk preflight." >&2
+          fi
+
+          if [[ -z "${cleanup_cutoff_epoch}" ]]; then
+            : # The warning above already explains why image cleanup is skipped.
+          elif [[ -z "${target_image_repository}" || "${target_image_repository}" == "${TARGET_IMAGE}" ]]; then
+            echo "WARNING: unable to derive the target image repository; skipping image cleanup and continuing to disk preflight." >&2
+          elif ! container_ids="$(docker ps -aq)"; then
+            echo "WARNING: unable to list Docker containers; skipping image cleanup and continuing to disk preflight." >&2
+          elif ! image_rows="$(docker image ls --no-trunc --filter "reference=${target_image_repository}:*" --format '{{.ID}}|{{.Repository}}|{{.Tag}}')"; then
+            echo "WARNING: unable to list target-repository images; skipping image cleanup and continuing to disk preflight." >&2
+          else
+            declare -A container_referenced_image_ids=()
+            container_inspection_failed=0
+            while IFS= read -r container_id; do
+              [[ -n "${container_id}" ]] || continue
+              if ! container_image_id="$(docker inspect -f '{{.Image}}' "${container_id}")" || [[ -z "${container_image_id}" ]]; then
+                container_inspection_failed=1
+                break
+              fi
+              container_referenced_image_ids["${container_image_id}"]=1
+            done <<<"${container_ids}"
+
+            if (( container_inspection_failed != 0 )); then
+              echo "WARNING: unable to inspect every container image; skipping image cleanup and continuing to disk preflight." >&2
+            else
+              declare -A image_refs_by_id=()
+              declare -A seen_candidate_ids=()
+              candidate_image_ids=()
+              while IFS='|' read -r listed_image_id listed_repository listed_tag; do
+                [[ -n "${listed_image_id}" && -n "${listed_repository}" && -n "${listed_tag}" ]] || continue
+                [[ "${listed_repository}" == "${target_image_repository}" ]] || continue
+                [[ "${listed_tag}" != "<none>" ]] || continue
+                image_ref="${listed_repository}:${listed_tag}"
+                image_refs_by_id["${listed_image_id}"]="${image_refs_by_id[${listed_image_id}]:-}${image_ref}"$'\n'
+                if [[ -z "${seen_candidate_ids[${listed_image_id}]:-}" ]]; then
+                  seen_candidate_ids["${listed_image_id}"]=1
+                  candidate_image_ids+=("${listed_image_id}")
+                fi
+              done <<<"${image_rows}"
+
+              image_metadata_failed=0
+              image_metadata_rows=()
+              for listed_image_id in "${candidate_image_ids[@]}"; do
+                if ! image_metadata="$(docker image inspect -f '{{.Id}}|{{.Created}}' "${listed_image_id}")"; then
+                  image_metadata_failed=1
+                  break
+                fi
+                full_image_id="${image_metadata%%|*}"
+                created_at="${image_metadata#*|}"
+                if [[ -z "${full_image_id}" || "${created_at}" == "${image_metadata}" ]] ||
+                  ! created_epoch="$(date -u -d "${created_at}" +%s)" ||
+                  [[ ! "${created_epoch}" =~ ^[0-9]+$ ]]; then
+                  image_metadata_failed=1
+                  break
+                fi
+                image_metadata_rows+=("${created_epoch}|${listed_image_id}|${full_image_id}")
+              done
+
+              if (( image_metadata_failed != 0 )); then
+                echo "WARNING: unable to inspect all target image timestamps; skipping image cleanup and continuing to disk preflight." >&2
+              else
+                image_index=0
+                while IFS='|' read -r created_epoch listed_image_id full_image_id; do
+                  [[ -n "${full_image_id}" ]] || continue
+                  if (( image_index < 3 )); then
+                    echo "Keeping target image ${full_image_id} in the newest-three rollback cache."
+                  elif [[ -n "${container_referenced_image_ids[${full_image_id}]:-}" ]]; then
+                    echo "Keeping target image ${full_image_id} because a container references it."
+                  elif (( created_epoch >= cleanup_cutoff_epoch )); then
+                    echo "Keeping target image ${full_image_id} because it is newer than 168h."
+                  else
+                    while IFS= read -r image_ref; do
+                      [[ -n "${image_ref}" ]] || continue
+                      if ! docker image rm "${image_ref}"; then
+                        echo "WARNING: failed to remove old target image tag ${image_ref}; continuing to disk preflight." >&2
+                      fi
+                    done <<<"${image_refs_by_id[${listed_image_id}]}"
+                  fi
+                  image_index=$(( image_index + 1 ))
+                done < <(printf '%s\n' "${image_metadata_rows[@]}" | sort -t'|' -k1,1nr)
+              fi
+            fi
+          fi
+          # --- Disk preflight: fail fast if Docker storage filesystem is too full ---
+          # Resolves Docker root via 'docker info' with /var/lib/docker fallback, then
+          # checks df available space. Fails below 10 GB so low-disk is caught before
+          # image pull, build, container switch, or worktree operations.
+          DISK_PREFLIGHT_REQUIRED_GB=10
+          preflight_docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+          if [[ -z "${preflight_docker_root}" ]]; then
+            preflight_docker_root="/var/lib/docker"
+          fi
+          preflight_df_line="$(df -Pk "${preflight_docker_root}" 2>/dev/null | awk 'NR==2{print}' || true)"
+          if [[ -z "${preflight_df_line}" ]]; then
+            echo "::error ::Deploy disk preflight: unable to read df for ${preflight_docker_root}. Cannot confirm sufficient disk space. Remediation: free space on the deploy host or verify 'df' is available."
+            exit 1
+          fi
+          preflight_filesystem="$(echo "${preflight_df_line}" | awk '{print $1}')"
+          preflight_mountpoint="$(echo "${preflight_df_line}" | awk '{print $6}')"
+          preflight_avail_kb="$(echo "${preflight_df_line}" | awk '{print $4}')"
+          preflight_avail_gb=$(( preflight_avail_kb / 1048576 ))
+          if (( preflight_avail_gb < DISK_PREFLIGHT_REQUIRED_GB )); then
+            echo "::error ::Deploy disk preflight FAILED: ${preflight_filesystem} mounted at ${preflight_mountpoint} (checked path: ${preflight_docker_root}) has ${preflight_avail_gb} GB free, below the required ${DISK_PREFLIGHT_REQUIRED_GB} GB threshold. Remediation: run 'docker buildx prune --force' and/or 'docker image prune -a' on the deploy host to free space, then re-run the deploy."
+            exit 1
+          fi
+          echo "Deploy disk preflight passed: ${preflight_filesystem} at ${preflight_mountpoint} (${preflight_docker_root}) has ${preflight_avail_gb} GB free (required: ${DISK_PREFLIGHT_REQUIRED_GB} GB)."
+          # --- End disk preflight ---
+
+          resolve_docker_disk_path() {
+            local docker_root=""
+            docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+            if [[ -z "${docker_root}" ]]; then
+              docker_root="/var/lib/docker"
+            fi
+            echo "${docker_root}"
+          }
+
+          read_disk_snapshot() {
+            local path="$1"
+            local snapshot=""
+            snapshot="$(df -BG -P "${path}" 2>/dev/null | awk 'NR == 2 { gsub(/G$/, "", $4); print $1 "|" $6 "|" $4 }' || true)"
+            if [[ -z "${snapshot}" && "${path}" != "/" ]]; then
+              snapshot="$(df -BG -P / 2>/dev/null | awk 'NR == 2 { gsub(/G$/, "", $4); print $1 "|" $6 "|" $4 }' || true)"
+            fi
+            echo "${snapshot}"
+          }
+
+          append_deploy_disk_summary() {
+            local filesystem="$1"
+            local checked_path="$2"
+            local before_free_gb="$3"
+            local after_free_gb="$4"
+            local cleanup_actions="$5"
+
+            echo "DEPLOY_DISK_SUMMARY filesystem=${filesystem} path=${checked_path} before_free_gb=${before_free_gb} after_free_gb=${after_free_gb} cleanup_actions=${cleanup_actions}"
+
+            if [[ -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
+              echo "GITHUB_STEP_SUMMARY unavailable; disk summary emitted to workflow log only."
+              return 0
+            fi
+
+            {
+              echo "### Deploy disk usage"
+              echo
+              echo "| Filesystem | Path | Free GB before deploy | Free GB after deploy | Cleanup actions attempted |"
+              echo "| --- | --- | ---: | ---: | --- |"
+              echo "| ${filesystem} | ${checked_path} | ${before_free_gb} | ${after_free_gb} | ${cleanup_actions} |"
+            } >> "${GITHUB_STEP_SUMMARY}" || echo "WARNING: Unable to append deploy disk summary; deploy result is unaffected." >&2
+          }
+
+          docker_disk_path="$(resolve_docker_disk_path)"
+          docker_disk_before_snapshot="$(read_disk_snapshot "${docker_disk_path}")"
+          IFS='|' read -r docker_disk_filesystem docker_disk_checked_path docker_disk_before_free_gb <<< "${docker_disk_before_snapshot:-unknown|${docker_disk_path}|unknown}"
+
+          repo_path="${DEPLOY_PATH}"
+          origin_url="https://x-access-token:${WORKFLOW_GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if [[ ! -d "${repo_path}/.git" ]]; then
+            echo "ERROR: DEPLOY_PATH must point at the persistent deploy checkout (missing .git): ${repo_path}" >&2
+            exit 1
+          fi
+
+          # Deploy contract: the deploy-host repo checkout is a build artifact,
+          # NOT an authoring surface. Every deploy hard-syncs the working tree
+          # to the target ref. Any tracked file edited in place on the host will be
+          # destroyed; commit changes upstream instead. Any untracked state that
+          # must survive (e.g. .deploy-backups/, data/generated/, node_modules/)
+          # must be gitignored — `git clean -fd` without -x leaves ignored
+          # files alone.
+          #
+          # Historically this step used a stash / preserve-untracked / pop
+          # dance that tried to merge host-local state back on top of the
+          # checkout. That dance failed whenever cron-written files (the ones
+          # now gitignored) collided with origin, leaving orphaned stashes and
+          # a wedged working tree that blocked every subsequent deploy. The
+          # simpler hard-sync flow below is deliberately destructive and
+          # idempotent so a dirty deploy host never jams future deploys.
+
+          resolve_checkout_target() {
+            local requested="$1"
+            case "${requested}" in
+              refs/heads/*)
+                echo "origin/${requested#refs/heads/}"
+                return 0
+                ;;
+              refs/tags/*)
+                echo "${requested#refs/tags/}"
+                return 0
+                ;;
+            esac
+
+            if git -C "${repo_path}" rev-parse --verify --quiet "origin/${requested}^{commit}" >/dev/null; then
+              echo "origin/${requested}"
+              return 0
+            fi
+
+            if git -C "${repo_path}" rev-parse --verify --quiet "${requested}^{commit}" >/dev/null; then
+              echo "${requested}"
+              return 0
+            fi
+
+            echo "ERROR: Unable to resolve checkout ref ${requested}" >&2
+            exit 1
+          }
+
+          git -C "${repo_path}" fetch --prune --tags "${origin_url}" \
+            '+refs/heads/*:refs/remotes/origin/*' \
+            '+refs/tags/*:refs/tags/*'
+          checkout_target="$(resolve_checkout_target "${TARGET_CHECKOUT_REF}")"
+
+          # Destructive hard-sync. `reset --hard` forces HEAD + index + worktree
+          # to match the target ref regardless of prior state (unmerged entries,
+          # aborted merges, dirty tracked files). `clean -fd` (no -x) removes
+          # untracked files + directories but leaves gitignored runtime state
+          # (data/generated/, node_modules/, .deploy-backups/, etc.) intact.
+          # .deploy-backups/ is explicitly excluded so any prior collision
+          # archives remain for manual reconciliation.
+          git -C "${repo_path}" reset --hard "${checkout_target}"
+          git -C "${repo_path}" clean -fd --exclude=.deploy-backups
+
+          cd "${repo_path}"
+
+          # --- EMAIL_FROM guard: lib/email.ts's code fallback is the neutral
+          # OSS sandbox sender (onboarding@resend.dev). Production must keep
+          # the branded sender, which lives only in the host .env — append it
+          # if the operator's .env predates the variable. Idempotent: a set
+          # (even empty) EMAIL_FROM line is never touched.
+          if [[ -f .env ]] && ! grep -qE '^EMAIL_FROM=' .env; then
+            printf '\n# Added by deploy EMAIL_FROM guard: keep the branded sender now that\n# the code default is the neutral OSS sandbox sender.\nEMAIL_FROM=Aries AI <noreply@sugarandleather.com>\n' >> .env
+            echo "::notice ::EMAIL_FROM was missing from the host .env; appended the branded default (Aries AI <noreply@sugarandleather.com>)."
+          fi
+          # --- End EMAIL_FROM guard ---
+
+          # Start the restart-on-unhealthy watcher before replacing the web
+          # container. It uses its own digest-pinned external image (not
+          # TARGET_IMAGE) and only watches the Aries-specific autoheal label.
+          docker compose up -d --no-deps --force-recreate --pull always aries-autoheal
+          autoheal_container_id="$(docker compose ps -q aries-autoheal)"
+          autoheal_running="$(docker inspect -f '{{.State.Running}}' "${autoheal_container_id}" 2>/dev/null || echo false)"
+          if [[ -z "${autoheal_container_id}" || "${autoheal_running}" != "true" ]]; then
+            echo "ERROR: aries-autoheal did not start; refusing to deploy without unhealthy-container recovery." >&2
+            exit 1
+          fi
+
+          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
+
+          # Scheduled publishing crosses the web/worker boundary. Quiesce the
+          # old app before stopping its worker so authenticated schedule/delete
+          # mutations cannot erase unsafe legacy evidence before quarantine.
+          # The helper applies target-image schema with bounded DB waits and
+          # restores the exact old app/worker only when pre-boundary proof says
+          # that rollback is safe.
+          export ARIES_QUIESCE_APPLICATION_DURING_SCHEMA=1
+          TARGET_IMAGE="${TARGET_IMAGE}" source ./scripts/release/apply-schema-with-worker-restore.sh
+          unset ARIES_QUIESCE_APPLICATION_DURING_SCHEMA
+
+          # init-db already succeeded in the bounded target-image one-shot above.
+          # Skip the runtime's duplicate unbounded init while recreating the app.
+          export ARIES_SKIP_DB_INIT=1
+
+          # Both the old app and worker remain stopped here. Quarantine unsafe
+          # legacy evidence before any compatible app is exposed, closing the
+          # mutation window rather than relying on lock ordering to win a race.
+          PGOPTIONS='-c lock_timeout=5s -c statement_timeout=120s' \
+            ARIES_APP_IMAGE="${TARGET_IMAGE}" \
+            timeout 180s docker compose run --rm --no-deps --entrypoint node \
+              "${SERVICE_NAME}" scripts/run-scheduled-dispatch-cutover.js
+
+          # Quarantine completed under quiescence. Crossing the protocol
+          # boundary now makes old app/worker restore unsafe; every later
+          # failure remains fail closed until the compatible target is healthy.
+          mark_scheduled_worker_protocol_boundary
+          target_image_id="$(docker image inspect -f '{{.Id}}' "${TARGET_IMAGE}")"
+          replace_application_and_verify "${TARGET_IMAGE}" "${target_image_id}" "${SERVICE_NAME}"
+          unset ARIES_SKIP_DB_INIT
+
+          # Restart scheduled publishing only after the target app is healthy
+          # and data is compatible. After the protocol boundary, every failure
+          # remains fail-closed with publishing stopped until a target worker is
+          # proven live and the EXIT trap is disarmed.
+          replace_scheduled_worker_and_verify "${TARGET_IMAGE}" "${target_image_id}"
+
+          # Roll the weekly-trigger-worker sidecar to the same image too, for the
+          # same reason: it imports backend code and must stay in lockstep with
+          # the app. Gated by ARIES_WEEKLY_TRIGGER_ENABLED (default OFF) — when
+          # off it idles cleanly (no restart loop), so recreating it every deploy
+          # is safe whether or not the flag is set. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-weekly-trigger-worker; then
+            echo "WARNING: failed to recreate aries-weekly-trigger-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Roll the draft-expiry-sweep-worker sidecar to the same image too. It
+          # imports backend code (the sweep module) and must stay in lockstep
+          # with the app. Gated by ARIES_DRAFT_EXPIRY_ENABLED (default OFF) — when
+          # off it idles cleanly (no restart loop), so recreating it every deploy
+          # is safe whether or not the flag is set. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-draft-expiry-sweep-worker; then
+            echo "WARNING: failed to recreate aries-draft-expiry-sweep-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Roll the hermes-gc-worker sidecar to the same image too. It imports
+          # backend code (the gc sweep) and must stay in lockstep with the app.
+          # Gated by ARIES_HERMES_GC_ENABLED (default OFF) — when off it idles
+          # cleanly (no restart loop), so recreating it every deploy is safe
+          # whether or not the flag is set. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-hermes-gc-worker; then
+            echo "WARNING: failed to recreate aries-hermes-gc-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Roll the usage-rollup-worker sidecar to the same image too. It imports
+          # backend code (the usage rollup + retention modules) and must stay in
+          # lockstep with the app. Gated by ARIES_USAGE_ROLLUP_ENABLED (default
+          # OFF) — when off it idles cleanly (no restart loop), so recreating it
+          # every deploy is safe whether or not the flag is set. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-usage-rollup-worker; then
+            echo "WARNING: failed to recreate aries-usage-rollup-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Roll the insights-sync-worker sidecar too. It imports backend code
+          # (the insights sync module) and must stay in lockstep with the app.
+          # Omitting it here caused the 2026-06-09 incident where it kept
+          # running a 6-day-stale image across deploys. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-insights-sync-worker; then
+            echo "WARNING: failed to recreate aries-insights-sync-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Roll the honcho-performance-worker sidecar too, for the same
+          # lockstep reason (it imports backend code; recordPerformanceEvent
+          # self-gates on HONCHO_WRITE_PUBLISH_ENABLED, so recreating it every
+          # deploy is safe whether or not the flag is set). Non-fatal, like above.
+          #
+          # NOTE: every worker service in docker-compose.yml must have a
+          # recreate block in this list — tests/deploy-manifest-parity.test.ts
+          # enforces parity, so adding a new compose worker without updating
+          # this workflow fails CI.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-honcho-performance-worker; then
+            echo "WARNING: failed to recreate aries-honcho-performance-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Roll the composio-connection-reconciler-worker sidecar too. It
+          # imports backend code (the account provider + connection store) and
+          # must stay in lockstep with the app. Gated by
+          # ARIES_COMPOSIO_RECONCILER_ENABLED (default OFF) — when off it idles
+          # cleanly (no restart loop), so recreating it every deploy is safe
+          # whether or not the flag is set. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-composio-reconciler-worker; then
+            echo "WARNING: failed to recreate aries-composio-reconciler-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Roll the feedback-retry-worker sidecar too. It imports backend code
+          # (the SC-70 retry sweep) and must stay in lockstep with the app.
+          # Default ON but inherently dormant without JIRA_* config (idles with
+          # one info line), so recreating it every deploy is safe either way.
+          # Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-feedback-retry-worker; then
+            echo "WARNING: failed to recreate aries-feedback-retry-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Verify every sidecar actually rolled. The recreate failures above
+          # are deliberately non-fatal (workers are best-effort relative to the
+          # user-facing app), but a swallowed failure — or a stop->rm->create
+          # that died between rm and create — would otherwise leave a worker
+          # stale or absent while the deploy reports green: the 2026-06-09
+          # stale-image incident class. The service list comes from compose
+          # itself so this check can never drift from docker-compose.yml.
+          worker_mismatches=0
+          while IFS= read -r worker_service; do
+            [[ -z "${worker_service}" || "${worker_service}" == "${SERVICE_NAME}" ]] && continue
+            [[ "${worker_service}" == "aries-autoheal" ]] && continue
+            worker_container_id="$(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose ps -q "${worker_service}" 2>/dev/null || true)"
+            if [[ -z "${worker_container_id}" ]]; then
+              echo "::warning::Post-deploy check: no running container for ${worker_service} after force-recreate."
+              echo "- WARNING ${worker_service}: no running container after force-recreate" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              worker_mismatches=$((worker_mismatches + 1))
+              continue
+            fi
+            worker_image_id="$(docker inspect -f '{{.Image}}' "${worker_container_id}" 2>/dev/null || true)"
+            worker_running="$(docker inspect -f '{{.State.Running}}' "${worker_container_id}" 2>/dev/null || echo false)"
+            if [[ "${worker_image_id}" != "${target_image_id}" || "${worker_running}" != "true" ]]; then
+              echo "::warning::Post-deploy check: ${worker_service} running=${worker_running} image=${worker_image_id} does not match target ${target_image_id}."
+              echo "- WARNING ${worker_service}: running=${worker_running}, image does not match the deployed target" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              worker_mismatches=$((worker_mismatches + 1))
+            fi
+          done < <(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose config --services)
+          if [[ "${worker_mismatches}" -ne 0 ]]; then
+            echo "ERROR: ${worker_mismatches} sidecar worker(s) did not roll cleanly; refusing to report deploy success." >&2
+            exit 1
+          fi
+          echo "Post-deploy check: all sidecar workers are running on the target image."
+
+          # --- ARIES_APP_IMAGE pin guard: every compose invocation above
+          # pinned the image via an environment override, so the containers
+          # now run TARGET_IMAGE while the host .env still names whatever the
+          # previous deploy (or an operator) left there. A later bare
+          # `docker compose up` in this directory resolves the stale .env pin
+          # and silently rolls production back to it — that happened twice on
+          # 2026-08-12. Rewrite the pin so the file always describes what is
+          # actually running. Fatal on failure: reporting deploy success while
+          # the pin is stale re-arms exactly that rollback footgun.
+          #
+          # Pin the hybrid tag@digest form (name:tag@sha256:...): the registry
+          # digest is the authoritative immutable reference, the git-sha tag
+          # stays human-traceable, and compose already uses this exact form
+          # for the aries-hermes default image. NOTE: target_image_id above is
+          # the LOCAL image ID, not a registry digest — never write it here
+          # (it is not pullable and means nothing to compose). RepoDigests can
+          # be empty in edge cases; fall back to the tag ref with a warning
+          # rather than failing a healthy deploy over pin cosmetics.
+          pin_ref="${TARGET_IMAGE}"
+          pin_repo="${TARGET_IMAGE%:*}"
+          pin_repo_digest="$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "${TARGET_IMAGE}" 2>/dev/null | grep -m1 "^${pin_repo}@sha256:" || true)"
+          if [[ -n "${pin_repo_digest}" ]]; then
+            pin_ref="${TARGET_IMAGE}@${pin_repo_digest##*@}"
+          else
+            echo "::warning::No registry digest available for ${TARGET_IMAGE}; pinning the tag ref only in .env."
+          fi
+          if ! ./scripts/release/sync-env-image-pin.sh .env "${pin_ref}"; then
+            echo "ERROR: failed to sync ARIES_APP_IMAGE in ${repo_path}/.env to ${pin_ref}; a bare 'docker compose up' would roll production back to the stale pin. Fix the pin (scripts/release/sync-env-image-pin.sh .env ${pin_ref}) and re-run the deploy to verify." >&2
+            exit 1
+          fi
+          echo "::notice ::ARIES_APP_IMAGE pinned to ${pin_ref} in ${repo_path}/.env (matches the verified running deployment)."
+          # --- End ARIES_APP_IMAGE pin guard ---
+
+          cleanup_actions_attempted="preflight selected-builder cache prune + target-repository image cleanup (older than 168h; keep newest 3 + container-referenced)"
+          docker_disk_after_snapshot="$(read_disk_snapshot "${docker_disk_path}")"
+          IFS='|' read -r docker_disk_after_filesystem docker_disk_after_checked_path docker_disk_after_free_gb <<< "${docker_disk_after_snapshot:-${docker_disk_filesystem}|${docker_disk_checked_path}|unknown}"
+          append_deploy_disk_summary \
+            "${docker_disk_after_filesystem:-${docker_disk_filesystem:-unknown}}" \
+            "${docker_disk_after_checked_path:-${docker_disk_checked_path:-${docker_disk_path}}}" \
+            "${docker_disk_before_free_gb:-unknown}" \
+            "${docker_disk_after_free_gb:-unknown}" \
+            "${cleanup_actions_attempted}"

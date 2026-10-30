@@ -1,0 +1,158 @@
+import pool from '@/lib/db';
+import { getTenantContext } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
+import { isMultiWorkspaceEnabled } from '@/backend/tenant/multi-workspace-env';
+import { deleteTenantUserProfile, getTenantUserProfileById, updateTenantUserProfile } from '@/backend/tenant/user-profiles';
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+function parseUserId(raw: string): string | null {
+  return /^[1-9]\d*$/.test(raw) ? raw : null;
+}
+
+export async function GET(_req: Request, { params }: { params: Promise<{ userId: string }> }) {
+  const { userId: rawUserId } = await params;
+  const userId = parseUserId(rawUserId);
+  if (!userId) {
+    return json({ error: 'invalid_user_id' }, 400);
+  }
+
+  let tenantContext;
+  try {
+    tenantContext = await getTenantContext();
+  } catch (error) {
+    return json({ error: 'Authentication required.' }, 403);
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await getTenantUserProfileById(client, { tenantId: tenantContext.tenantId, userId });
+    if (result.status === 'ok') {
+      return json({ profile: result.profile });
+    }
+
+    return json({ error: result.status }, result.status === 'tenant_mismatch' ? 403 : 404);
+  } finally {
+    client.release();
+  }
+}
+
+export async function PATCH(req: Request, { params }: { params: Promise<{ userId: string }> }) {
+  const { userId: rawUserId } = await params;
+  const userId = parseUserId(rawUserId);
+  if (!userId) {
+    return json({ error: 'invalid_user_id' }, 400);
+  }
+
+  let tenantContext;
+  try {
+    tenantContext = await getTenantContext();
+  } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
+    return json({ error: 'Authentication required.' }, 403);
+  }
+
+  if (tenantContext.role !== 'tenant_admin') {
+    return json({ error: 'forbidden' }, 403);
+  }
+
+  let payload: { fullName?: string | null; role?: 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer' } = {};
+  try {
+    payload = await req.json();
+  } catch {
+    payload = {};
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await updateTenantUserProfile(client, {
+      tenantId: tenantContext.tenantId,
+      userId,
+      fullName: payload.fullName,
+      role: payload.role,
+      actorUserId: tenantContext.userId,
+    });
+
+    if (result.status === 'ok') {
+      return json({ profile: result.profile });
+    }
+
+    if (result.status === 'last_admin') {
+      // Multi-workspace flag ON (E4): refusing to demote the org's only
+      // active admin — the workspace would become unadministrable.
+      return json({ error: 'last_admin' }, 409);
+    }
+    return json({ error: result.status }, result.status === 'tenant_mismatch' ? 403 : 404);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === 'invalid_role') {
+      return json({ error: message }, 400);
+    }
+
+    console.error('[tenant-profiles]', {
+      event: 'update-failed',
+      tenantId: tenantContext.tenantId,
+      userId,
+      error: message,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return json({ error: 'An unexpected error occurred' }, 500);
+  } finally {
+    client.release();
+  }
+}
+
+export async function DELETE(_req: Request, { params }: { params: Promise<{ userId: string }> }) {
+  const { userId: rawUserId } = await params;
+  const userId = parseUserId(rawUserId);
+  if (!userId) {
+    return json({ error: 'invalid_user_id' }, 400);
+  }
+
+  let tenantContext;
+  try {
+    tenantContext = await getTenantContext();
+  } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
+    return json({ error: 'Authentication required.' }, 403);
+  }
+
+  // E6 self-service leave (multi-workspace Phase 3, flag ON): a member may
+  // remove THEMSELVES from a workspace regardless of role (leaving = deleting
+  // your own membership row; the flag-ON delete path is membership-only and
+  // repoints your active pointer in the same txn). The last-admin guard inside
+  // deleteTenantUserProfile still blocks a sole admin from orphaning the
+  // workspace. Admin-removing-someone-else stays admin-gated, and flag OFF this
+  // is byte-identical (self-leave not offered; the OFF delete path is the
+  // legacy account-level DELETE, never reached for self here).
+  const isSelfLeave =
+    isMultiWorkspaceEnabled() && String(userId) === String(tenantContext.userId);
+  if (!isSelfLeave && tenantContext.role !== 'tenant_admin') {
+    return json({ error: 'forbidden' }, 403);
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await deleteTenantUserProfile(client, {
+      tenantId: tenantContext.tenantId,
+      userId,
+      actorUserId: tenantContext.userId,
+    });
+    if (result.status === 'deleted') {
+      return json({ status: 'deleted' });
+    }
+
+    if (result.status === 'last_admin') {
+      // Multi-workspace flag ON (E4): refusing to remove the org's only
+      // active admin — assign another admin first.
+      return json({ error: 'last_admin' }, 409);
+    }
+    return json({ error: result.status }, result.status === 'tenant_mismatch' ? 403 : 404);
+  } finally {
+    client.release();
+  }
+}

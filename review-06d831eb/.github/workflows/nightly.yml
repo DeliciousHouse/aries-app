@@ -1,0 +1,19 @@
+# Contract: dev-lead's 07:45 PT morning Jira intake consumes this surfacing-only run; it never auto-fixes, creates issues, deploys, or merges.
+name: Nightly Build
+run-name: Nightly Build · ${{ github.ref_name }}
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  full-suite:
+    uses: ./.github/workflows/tests.yml

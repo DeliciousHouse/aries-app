@@ -1,0 +1,45 @@
+# SHAPE ONLY — every value here is the literal string PLACEHOLDER_NEVER_REAL.
+#
+# This file is a fixture. It is never installed anywhere by anything in this
+# repo, and cookie-ingest.py REFUSES to install a payload that still contains
+# PLACEHOLDER_NEVER_REAL (see reject_placeholder_payload in its self-test).
+# The real store lives at ~/.agent-reach/config.yaml, mode 0600, and is written
+# only by cookie-ingest.py from a gpg blob the owner's local machine produced.
+#
+# ── HOW MUCH OF THIS SHAPE IS ACTUALLY VERIFIED ────────────────────────────
+# Upstream (github.com/Panniantong/Agent-Reach) documents ONLY the Twitter/X
+# credential names: TWITTER_AUTH_TOKEN and TWITTER_CT0, exported from a browser
+# with Cookie-Editor. Reddit, Instagram and Facebook are documented merely as
+# "browser login session via OpenCLI / CLI tools" — their YAML key names are
+# NOT published.
+#
+# So: the `twitter:` block below is real. The `reddit:`, `instagram:` and
+# `facebook:` blocks are ILLUSTRATIVE AND UNVERIFIED — plausible names, not
+# confirmed ones. Run `agent-reach configure <platform>` once on the VM and let
+# it write the real file, then copy THAT shape into the local generator
+# (ops/local-cookie-agent/refresh-cookies.sh).
+#
+# This is exactly why cookie-ingest.py validates STRUCTURALLY (parseable, the
+# expected top-level platform keys present, values non-empty and not
+# placeholders) and never against a hard-coded per-platform field list. A
+# validator built on the guesses below would silently reject real payloads and
+# starve the research stage.
+# ---------------------------------------------------------------------------
+
+# VERIFIED upstream: Cookie-Editor export of auth_token + ct0.
+twitter:
+  auth_token: PLACEHOLDER_NEVER_REAL
+  ct0: PLACEHOLDER_NEVER_REAL
+
+# UNVERIFIED key name — confirm with `agent-reach configure reddit`.
+reddit:
+  session: PLACEHOLDER_NEVER_REAL
+
+# UNVERIFIED key name — confirm with `agent-reach configure instagram`.
+instagram:
+  sessionid: PLACEHOLDER_NEVER_REAL
+
+# UNVERIFIED key names — confirm with `agent-reach configure facebook`.
+facebook:
+  c_user: PLACEHOLDER_NEVER_REAL
+  xs: PLACEHOLDER_NEVER_REAL

@@ -1,0 +1,153 @@
+import type { PoolClient } from 'pg';
+
+import { maybeSeedOnboardingMemoryForTenant } from '@/backend/memory/onboarding-memory-hook';
+import { isHonchoEnabled } from '@/backend/memory/honcho-env';
+import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
+import { loadTenantContextForUser } from '@/lib/tenant-context';
+import { evaluateOnboardingGate } from '@/lib/onboarding-gate';
+
+export type PostLoginDestination = '/onboarding/start' | '/dashboard';
+
+type Queryable = Pick<PoolClient, 'query'>;
+
+type UserJourneyRow = {
+  id: string | number;
+  organization_id?: string | number | null;
+  onboarding_required?: boolean | null;
+  onboarding_completed_at?: string | null;
+};
+
+export async function ensureUserJourneySchema(client: Queryable): Promise<void> {
+  // Schema is installed by db:init, never by a request's database role.
+  await client.query('SELECT onboarding_required, onboarding_completed_at FROM users LIMIT 0', []);
+}
+
+export async function getUserJourneyRow(
+  client: Queryable,
+  userId: number | string,
+): Promise<UserJourneyRow | null> {
+  await ensureUserJourneySchema(client);
+
+  const result = await client.query(
+    `
+      SELECT id, organization_id, onboarding_required, onboarding_completed_at
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [Number(userId)],
+  );
+
+  if ((result.rowCount ?? 0) === 0 || result.rows.length === 0) {
+    return null;
+  }
+
+  return result.rows[0] as UserJourneyRow;
+}
+
+export async function isTenantOnboardingComplete(
+  client: PoolClient,
+  tenantId: string | null | undefined,
+): Promise<boolean> {
+  if (!tenantId) {
+    return false;
+  }
+
+  try {
+    const resolved = await getBusinessProfileWithDiagnostics(client, String(tenantId));
+    return !resolved.profile.incomplete;
+  } catch {
+    return false;
+  }
+}
+
+// After the connection-gate softening, `isTenantReadyForDashboard` returns true
+// for tenants with no connected channel as long as their business profile is
+// complete. This function is no longer a connection-presence signal. As a
+// consequence, the `users.onboarding_completed_at` flip below now means "tenant
+// has a complete business profile and may enter the dashboard" — publishing
+// readiness is a separate concern owned by `tenantNeedsChannelConnection`.
+export async function isTenantReadyForDashboard(
+  client: PoolClient,
+  tenantId: string | null | undefined,
+): Promise<boolean> {
+  if (!tenantId) {
+    return false;
+  }
+
+  try {
+    const decision = await evaluateOnboardingGate({ client, tenantId: String(tenantId) });
+    return decision.allowed;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeTenantId(value: string | number | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return String(value);
+}
+
+export function shouldRequireOnboarding(args: {
+  onboardingRequired?: boolean | null;
+  onboardingCompletedAt?: string | null;
+  onboardingCompleted: boolean;
+}): boolean {
+  if (args.onboardingCompletedAt || args.onboardingCompleted) {
+    return false;
+  }
+
+  return Boolean(args.onboardingRequired);
+}
+
+export function resolvePostLoginDestination(needsOnboarding: boolean): PostLoginDestination {
+  return needsOnboarding ? '/onboarding/start' : '/dashboard';
+}
+
+export async function resolvePostLoginDestinationForUser(
+  client: PoolClient,
+  userId: string | number,
+): Promise<PostLoginDestination> {
+  const row = await getUserJourneyRow(client, userId);
+
+  if (!row) {
+    throw new Error(`Unable to resolve onboarding journey for missing user ${userId}.`);
+  }
+
+  const tenantId = normalizeTenantId(row.organization_id);
+  const onboardingCompleted = await isTenantOnboardingComplete(client, tenantId);
+  const dashboardReady = onboardingCompleted
+    ? await isTenantReadyForDashboard(client, tenantId)
+    : false;
+  const needsOnboarding = shouldRequireOnboarding({
+    onboardingRequired: row.onboarding_required,
+    onboardingCompletedAt: row.onboarding_completed_at,
+    onboardingCompleted: dashboardReady,
+  });
+
+  if (dashboardReady && (row.onboarding_required || !row.onboarding_completed_at)) {
+    await client.query(
+      `
+        UPDATE users
+        SET onboarding_required = FALSE,
+            onboarding_completed_at = COALESCE(onboarding_completed_at, NOW())
+        WHERE id = $1
+      `,
+      [Number(row.id)],
+    );
+
+    if (isHonchoEnabled()) {
+      try {
+        const tenantCtx = await loadTenantContextForUser(client, String(row.id));
+        await maybeSeedOnboardingMemoryForTenant(client, tenantCtx);
+      } catch (err) {
+        console.error('[onboarding-memory-seed] skipped after dashboard gate', err);
+      }
+    }
+  }
+
+  return resolvePostLoginDestination(needsOnboarding);
+}

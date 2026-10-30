@@ -1,0 +1,8 @@
+{
+  "$ref": "../../specs/video_job_contract_spec.v2.json",
+  "contract_name": "aries_provider_neutral_video_runtime",
+  "contract_version": "2.0.0",
+  "submission_schema": "HermesRunSubmissionSchema",
+  "callback_schema": "HermesRunCallbackPayloadSchema",
+  "runtime_state_schema": "../../specs/video_runtime_state_schema.v2.json"
+}

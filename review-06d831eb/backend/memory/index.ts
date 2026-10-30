@@ -1,0 +1,117 @@
+export { MemoryError } from './errors';
+export {
+  honchoDialecticTimeoutMs,
+  isHonchoBrandContextEnabled,
+  isHonchoEnabled,
+  isHonchoWriteApprovalsEnabled,
+  isHonchoWritePreferencesEnabled,
+  isHonchoWritePublishEnabled,
+  validateHonchoConfig,
+} from './honcho-env';
+export type { MemoryErrorCode } from './errors';
+export {
+  ARIES_TENANT_WORKSPACE_PREFIX,
+  isAriesTenantWorkspace,
+  pseudonymForTenant,
+  pseudonymForUser,
+  workspaceIdForTenant,
+} from './pseudonym';
+export { curateFinding } from './curator';
+export type { CurateOptions } from './curator';
+export {
+  TenantMemoryClient,
+} from './honcho-client';
+export type {
+  HonchoTransport,
+  PeerRef,
+  SessionRef,
+  AppendApprovedMessageInput,
+  AppendObservationInput,
+  DialecticQueryInput,
+  DialecticReasoningLevel,
+  ListApprovedMessagesInput,
+} from './honcho-client';
+export type {
+  ApprovedMessage,
+  CandidateFinding,
+  CandidateFindingMetadata,
+  CuratorOutcome,
+  FindingKind,
+  FindingSource,
+  PeerKind,
+  ResearchEnvelope,
+  SourceTrust,
+} from './types';
+export { HonchoHttpTransport } from './honcho-http-transport';
+export { createMemoryOrchestrator } from './orchestrator';
+export { BRAND_AVOID_QUERY, BRAND_PROFILE_QUERY } from './orchestrator';
+export type {
+  BrandProfileContext,
+  LoadBrandProfileContextInput,
+  ResearchMemoryContextEntry,
+  LoadResearchMemoryContextInput,
+  LoadResearchMemoryContextResult,
+  AppendCuratedFindingInput,
+  AppendCuratedFindingResult,
+} from './orchestrator';
+export {
+  ensureResearchJobSchema,
+  createJob,
+  recordEnvelope,
+  recordFinding,
+  setStatus,
+  getJob,
+  getJobById,
+  listQueuedResearchFindingsForTenant,
+} from './research-jobs';
+export type {
+  ResearchJob,
+  ResearchFinding,
+  ResearchJobStatus,
+  ResearchFindingRow,
+} from './research-jobs';
+export { dispatchResearchJob } from './hermes-dispatch';
+export type { DispatchResearchJobInput, DispatchResearchJobResult } from './hermes-dispatch';
+export { submitMarketingResearchMemoryJob } from './submit-marketing-research-job';
+export type {
+  MarketingResearchBridgeInput,
+  SubmitMarketingResearchMemoryResult,
+} from './submit-marketing-research-job';
+export { archiveTenantMemory } from './tenant-deletion';
+export type { TenantDeletionResult } from './tenant-deletion';
+export { seedOnboardingMemory } from './onboarding-seed';
+export type { OnboardingSeedInput, OnboardingSeedResult, OnboardingSeedFindingResult } from './onboarding-seed';
+export { buildOnboardingCandidatesFromProfile } from './build-onboarding-candidates';
+export { maybeSeedOnboardingMemoryForTenant, ensureOnboardingMemorySeedColumn } from './onboarding-memory-hook';
+export {
+  recordApprovalEvent,
+  recordDenialEvent,
+  scheduleMarketingApprovalHonchoWrites,
+  recordPublishEvent,
+  schedulePublishVerificationHonchoWrite,
+  recordScheduleEvent,
+  scheduleScheduledPostHonchoWrite,
+  recordPerformanceEvent,
+  scheduleHermesPublishPerformanceHonchoWrite,
+  topicPseudonymHexForPerformanceMemory,
+  scrubPlatformIdsFromPerformancePayload,
+  recordCreativeVoicePreferenceEvent,
+  scheduleCreativeVoicePreferenceHonchoWrite,
+  scrubPreferenceLabelForHoncho,
+  recordOnboardingVariantTasteSignalEvent,
+  scheduleOnboardingVariantTasteSignalHoncho,
+  resolveTenantSlugForMemoryWrite,
+  formatPerformanceObservation,
+} from './write-events';
+export type {
+  RecordPerformanceOutcome,
+  MarketingApprovalMemoryStage,
+  RecordApprovalHonchoEventInput,
+  RecordDenialHonchoEventInput,
+  MarketingApprovalHonchoMirrorInput,
+  RecordPublishVerificationHonchoWriteInput,
+  RecordScheduledPostHonchoWriteInput,
+  RecordPublishPerformanceHonchoWriteInput,
+  RecordCreativeVoicePreferenceHonchoWriteInput,
+  RecordOnboardingVariantTasteSignalHonchoWriteInput,
+} from './write-events';

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "backend_error_shapes.v1",
+  "title": "Backend Error Shapes",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/validation_error" },
+    { "$ref": "#/$defs/repair_error" },
+    { "$ref": "#/$defs/hard_failure_error" }
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "required": ["kind", "status", "code", "message"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["validation_error", "repair_error", "hard_failure"] },
+        "status": { "type": "string", "enum": ["invalid", "repairable", "failed"] },
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "details": { "type": ["object", "array", "string", "null"] },
+        "job_id": { "type": "string" },
+        "tenant_id": { "type": "string" },
+        "trace_id": { "type": "string" },
+        "at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "validation_error": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "properties": {
+            "kind": { "const": "validation_error" },
+            "status": { "const": "invalid" },
+            "field_errors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["field", "reason"],
+                "properties": {
+                  "field": { "type": "string" },
+                  "reason": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["field_errors"]
+        }
+      ]
+    },
+    "repair_error": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "properties": {
+            "kind": { "const": "repair_error" },
+            "status": { "const": "repairable" },
+            "stage": { "type": "string" },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "max_attempts": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["stage", "attempt", "max_attempts"]
+        }
+      ]
+    },
+    "hard_failure_error": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "properties": {
+            "kind": { "const": "hard_failure" },
+            "status": { "const": "failed" },
+            "failure_class": {
+              "type": "string",
+              "enum": ["env_missing", "auth_failure", "io_failure", "schema_invalid", "unhandled_exception"]
+            }
+          },
+          "required": ["failure_class"]
+        }
+      ]
+    }
+  }
+}

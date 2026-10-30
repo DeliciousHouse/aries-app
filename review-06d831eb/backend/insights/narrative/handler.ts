@@ -1,0 +1,284 @@
+/**
+ * backend/insights/narrative/handler.ts
+ *
+ * Handles GET /api/insights/narrative requests.
+ *
+ * Flow:
+ *   1. Resolve tenant context.
+ *   2. For platform != 'all': check integration is connected.
+ *      If not → return { status: 'not_connected' } so the frontend can show a connect prompt.
+ *   3. Check insights_narratives cache (TTL = 1 hour, keyed by tenant+period+platform).
+ *   4. On cache miss: build snapshot → build text → store in DB → return.
+ *   5. On cache hit: return stored narrative.
+ *   6. Caller can pass ?force=true to skip cache and regenerate.
+ */
+
+import { NextResponse } from 'next/server';
+import pool, { type PoolClient } from '@/lib/db';
+import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { isSupportedPlatform } from '@/backend/insights/platforms/registry';
+import { buildNarrativeSnapshot, type NarrativePeriod } from './snapshot-builder';
+import { buildNarrativeText } from './template-builder';
+import { computeAriesScore } from './score-builder';
+import crypto from 'crypto';
+import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
+import { checkInsightsForceThrottle } from '../force-throttle';
+
+// v2: S2-1 — hero top-post reach now uses the latest lifetime snapshot per post
+// (not SUM across dated cumulative rows), so the displayed reach number (and
+// which post ranks top) changes. Bump invalidates stale v1 bodies.
+// v3: S2-3 — period windows now computed in the tenant's business timezone
+// (account-daily totals as tenant-tz calendar dates; post/comment windows as
+// tenant-tz-midnight instants), so which rows fall in the current vs prior window
+// (and thus reach/engagement/deltas/hero post) shift near the day boundary.
+// v4: S3-1 (AA-97) honesty pass — hoursSaved reconciled to the shared synthetic
+// estimate (was 0.35–0.9h/post + 0.05h/comment), and the Aries Score no longer
+// floats at the ~50 base for a dead/near-dead account (zero-signal → 0; near-dead
+// now hits the empty state). Bump invalidates stale v3 bodies.
+// v5: AA-231 — engagementRate/engagementRatePrev now derive from the shared
+// accountEngagementSql aggregate (prefers the dedicated `engagement` column)
+// instead of summing likes+comments_count+shares in JS. That sum was
+// structurally 0 for every Facebook tenant (Facebook reports only the
+// aggregate), so engagementRate — and the engagement term of the Aries
+// Score — was always 0 on Facebook. Bump invalidates stale v4 bodies computed
+// on the broken sum.
+const TEMPLATE_VERSION = 'template-v5';
+const CACHE_TTL_BASE_MS     = 60 * 60 * 1000; // 1 hour
+
+const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
+
+function isValidPeriod(p: string | null): p is NarrativePeriod {
+  return p != null && VALID_PERIODS.has(p);
+}
+
+type PlatformConnectionState = 'connected' | 'not_connected' | 'error';
+
+async function checkPlatformConnection(platform: string, tenantId: string): Promise<PlatformConnectionState> {
+  try {
+    // A platform counts as "connected" for the hero when EITHER there is a live
+    // connection for it (connected_accounts, the Composio source of truth) OR we
+    // already hold synced insights data for it (account metrics / posts — the
+    // very tables the other sections render from). Gating this way — rather than
+    // on the legacy oauthStatusAsync, which is blind to Composio connections —
+    // guarantees the hero can never show "connect <platform>" while the rest of
+    // the dashboard is showing that platform's real metrics.
+    const res = await pool.query<{ connected: boolean }>(
+      `SELECT (
+         EXISTS(SELECT 1 FROM connected_accounts
+                 WHERE tenant_id = $1 AND platform = $2 AND status = 'connected')
+         OR EXISTS(SELECT 1 FROM insights_account_metrics_daily
+                    WHERE tenant_id = $1 AND platform = $2)
+         OR EXISTS(SELECT 1 FROM insights_posts
+                    WHERE tenant_id = $1 AND platform = $2)
+       ) AS connected`,
+      [Number(tenantId), platform],
+    );
+    return res.rows[0]?.connected === true ? 'connected' : 'not_connected';
+  } catch (err) {
+    // A DB/query failure is NOT a "not connected" signal. Surfacing it as such
+    // makes the UI say "connect <platform>" during a backend outage (S1-4/AA-83).
+    // Return a distinct error state so the caller can respond retryably.
+    console.error('[insights/narrative] platform connection check failed', {
+      platform, tenantId, error: err instanceof Error ? err.message : String(err),
+    });
+    return 'error';
+  }
+}
+
+function snapshotHash(tenantId: number, period: string, platform: string): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${tenantId}|${period}|${platform}|${TEMPLATE_VERSION}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+async function getCachedNarrative(
+  client: PoolClient,
+  tenantId: number,
+  period: string,
+  platform: string,
+  ttlMs: number,
+): Promise<{ body: Record<string, unknown>; generatedAt: Date } | null> {
+  const res = await client.query<{
+    body:         Record<string, unknown>;
+    generated_at: Date;
+    model:        string;
+  }>(
+    `SELECT body, generated_at, model
+     FROM insights_narratives
+     WHERE tenant_id   = $1
+       AND period      = $2
+       AND platform    = $3
+       AND section_key = 'hero'
+     LIMIT 1`,
+    [tenantId, period, platform],
+  );
+
+  if (res.rows.length === 0) return null;
+
+  const row       = res.rows[0];
+  const ageMs     = Date.now() - new Date(row.generated_at).getTime();
+  const isFresh   = ageMs < ttlMs;
+  const isCurrent = row.model === TEMPLATE_VERSION;
+
+  if (!isFresh || !isCurrent) return null;
+  return { body: row.body, generatedAt: row.generated_at };
+}
+
+async function upsertNarrative(
+  client: PoolClient,
+  tenantId: number,
+  period: string,
+  platform: string,
+  body: Record<string, unknown>,
+  inputHash: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO insights_narratives
+       (tenant_id, period, platform, section_key, body, prompt_version, model, input_hash, cost_cents, generated_at)
+     VALUES ($1, $2, $3, 'hero', $4, $5, $6, $7, 0, now())
+     ON CONFLICT (tenant_id, period, platform, section_key)
+     DO UPDATE SET
+       body           = EXCLUDED.body,
+       prompt_version = EXCLUDED.prompt_version,
+       model          = EXCLUDED.model,
+       input_hash     = EXCLUDED.input_hash,
+       cost_cents     = 0,
+       generated_at   = now()`,
+    [tenantId, period, platform, JSON.stringify(body), TEMPLATE_VERSION, TEMPLATE_VERSION, inputHash],
+  );
+}
+
+export async function handleGetInsightsNarrative(
+  req: Request,
+  tenantContextLoader?: TenantContextLoader,
+): Promise<Response> {
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
+  if ('response' in tenantResult) return tenantResult.response;
+
+  const { searchParams } = new URL(req.url);
+  const periodParam  = searchParams.get('period');
+  const platformParam = (searchParams.get('platform') || 'all').toLowerCase();
+  const force        = searchParams.get('force') === 'true';
+
+  if (!isValidPeriod(periodParam)) {
+    return NextResponse.json(
+      { error: 'Invalid period. Use: week | 30day | 90day' },
+      { status: 400 },
+    );
+  }
+
+  const tenantId   = Number(tenantResult.tenantContext.tenantId);
+  const tenantIdStr = String(tenantResult.tenantContext.tenantId);
+  const period     = periodParam;
+  const platform   = platformParam;
+
+  // AA-120: bound the forced cache bypass before ANY database work. This sits
+  // above the connection check, not just above the pooled-client acquisition
+  // below, because that check issues its own query — leaving the gate lower
+  // would let a throttled forced request still reach the pool on this one
+  // section. The cost is that a forced request for an unconnected platform can
+  // spend a token and answer 429 rather than `not_connected`; that only happens
+  // on the sixth forced refresh inside five minutes, and a uniform "a throttled
+  // request issues no query from this handler" invariant is worth more than
+  // that edge. (The tenant lookup above still takes its own brief checkout —
+  // see the note in force-throttle.ts; that one is unavoidable here.)
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'narrative');
+  if (throttled) return throttled;
+
+  // ── Connection check (skip for 'all') ────────────────────────────────────
+  if (platform !== 'all' && isSupportedPlatform(platform)) {
+    const connection = await checkPlatformConnection(platform, tenantIdStr);
+    if (connection === 'error') {
+      // Retryable backend error — NOT a connect prompt. 503 so the client shows
+      // its retry state instead of "connect <platform>" (S1-4/AA-83).
+      return NextResponse.json(
+        { status: 'error', error: 'connection_check_failed', retryable: true, platform },
+        { status: 503 },
+      );
+    }
+    if (connection === 'not_connected') {
+      return NextResponse.json({
+        status:      'not_connected',
+        platform,
+        connect_url: '/integrations',
+      });
+    }
+  }
+
+  // AA-122: one key for both the jittered expiry and the singleflight,
+  // so a section's staleness and its in-flight build always agree.
+  const cacheKey = snapshotHash(tenantId, period, platform);
+  const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
+  const client = await pool.connect();
+  try {
+    // ── Cache hit ────────────────────────────────────────────────────────────
+    if (!force) {
+      const cached = await getCachedNarrative(client, tenantId, period, platform, ttlMs);
+      if (cached) {
+        return NextResponse.json({
+          status:       'ok',
+          platform,
+          period,
+          cached:       true,
+          generated_at: cached.generatedAt,
+          ...cached.body,
+        });
+      }
+    }
+
+    // ── Cache miss: build snapshot + narrative ───────────────────────────────
+    const snapshot  = await buildInsightsSectionOnce(cacheKey, () => buildNarrativeSnapshot(tenantId, period, platform, client));
+    const text      = buildNarrativeText(snapshot);
+    const ariesScore = computeAriesScore(
+      period,
+      snapshot.engagementRate,
+      snapshot.reachDelta,
+      snapshot.engagementRatePrev,
+      snapshot.reach,
+    );
+    const inputHash = cacheKey;
+
+    const body: Record<string, unknown> = {
+      narrative: text,
+      // Aries Score (Hero Band right side)
+      score:     ariesScore.score,
+      scoreDelta: ariesScore.scoreDelta,
+      judgment:  ariesScore.judgment,
+      // Period meta line (below narrative)
+      periodMeta: {
+        posts:       snapshot.posts,
+        postsLabel:  snapshot.postsLabel,
+        comments:    snapshot.comments,
+        hoursSaved:  snapshot.hoursSaved,
+      },
+      snapshot: {
+        posts:            snapshot.posts,
+        postsLabel:       snapshot.postsLabel,
+        reach:            snapshot.reach,
+        reachDelta:       snapshot.reachDelta,
+        reachLabel:       snapshot.reachLabel,
+        engagementRate:   snapshot.engagementRate,
+        topPost:          snapshot.topPost,
+        unreplied:        snapshot.unreplied,
+        watchTimeMinutes: snapshot.watchTimeMinutes,
+        hasData:          snapshot.hasData,
+      },
+    };
+
+    await upsertNarrative(client, tenantId, period, platform, body, inputHash);
+
+    return NextResponse.json({
+      status:       'ok',
+      platform,
+      period,
+      cached:       false,
+      generated_at: new Date(),
+      ...body,
+    });
+  } finally {
+    client.release();
+  }
+}

@@ -1,0 +1,345 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const repoRoot = process.cwd();
+const distComposePath = path.join(repoRoot, 'dist', 'docker-compose.yml');
+
+test('legacy dist deploy shim stays out of the tracked runtime surface', () => {
+  const trackedDistCompose = execFileSync('git', ['ls-files', '--', distComposePath], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  }).trim();
+
+  assert.equal(trackedDistCompose, '');
+});
+
+test('runtime env examples advertise Hermes execution defaults', () => {
+  const composeSource = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
+  const envExampleSource = fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8');
+
+  assert.match(
+    composeSource,
+    /ARIES_EXECUTION_PROVIDER:\s*\$\{ARIES_EXECUTION_PROVIDER:-hermes\}/,
+  );
+  assert.match(
+    composeSource,
+    /ARIES_MARKETING_EXECUTION_PROVIDER:\s*\$\{ARIES_MARKETING_EXECUTION_PROVIDER:-hermes\}/,
+  );
+  assert.match(composeSource, /HERMES_GATEWAY_URL:\s*\$\{HERMES_GATEWAY_URL:-\}/);
+  assert.match(composeSource, /HERMES_API_SERVER_KEY:\s*\$\{HERMES_API_SERVER_KEY:-\}/);
+  assert.match(composeSource, /HERMES_SESSION_KEY:\s*\$\{HERMES_SESSION_KEY:-main\}/);
+  assert.match(composeSource, /INTERNAL_API_SECRET:\s*\$\{INTERNAL_API_SECRET\}/);
+  assert.doesNotMatch(composeSource, /OPENAI_CLIENT_ID/);
+  assert.doesNotMatch(composeSource, /OPENAI_CLIENT_SECRET/);
+  assert.match(composeSource, /OAUTH_TOKEN_ENCRYPTION_KEY:\s*\$\{OAUTH_TOKEN_ENCRYPTION_KEY\}/);
+
+  assert.match(envExampleSource, /^ARIES_EXECUTION_PROVIDER=hermes$/m);
+  assert.match(envExampleSource, /^ARIES_MARKETING_EXECUTION_PROVIDER=hermes$/m);
+  assert.doesNotMatch(envExampleSource, /legacy-openclaw/);
+  assert.doesNotMatch(composeSource, /OPENCLAW_GATEWAY_URL/);
+  assert.match(envExampleSource, /^HERMES_GATEWAY_URL=/m);
+  assert.match(envExampleSource, /^HERMES_API_SERVER_KEY=/m);
+  assert.match(envExampleSource, /^HERMES_SESSION_KEY=main$/m);
+  assert.doesNotMatch(envExampleSource, /^OPENAI_CLIENT_ID=/m);
+  assert.doesNotMatch(envExampleSource, /^OPENAI_CLIENT_SECRET=/m);
+  assert.match(envExampleSource, /^OAUTH_TOKEN_ENCRYPTION_KEY=/m);
+
+  // Hermes kanban GC worker knobs must be documented in .env.example
+  assert.match(envExampleSource, /^ARIES_KANBAN_GC_ENABLED=/m);
+  assert.match(envExampleSource, /^ARIES_KANBAN_GC_INTERVAL_MS=/m);
+  assert.match(envExampleSource, /^ARIES_KANBAN_GC_RETENTION_DAYS=/m);
+
+  // docker-compose.yml must wire all three kanban GC vars
+  assert.match(composeSource, /ARIES_KANBAN_GC_ENABLED:\s*\$\{ARIES_KANBAN_GC_ENABLED:-1\}/);
+  assert.match(composeSource, /ARIES_KANBAN_GC_INTERVAL_MS:\s*\$\{ARIES_KANBAN_GC_INTERVAL_MS:-86400000\}/);
+  assert.match(composeSource, /ARIES_KANBAN_GC_RETENTION_DAYS:\s*\$\{ARIES_KANBAN_GC_RETENTION_DAYS:-7\}/);
+
+  // Hermes run-timeout knobs must be documented in .env.example so operators
+  // can discover and tune them (the 1200s default fits real production-stage
+  // image-render runs; video workloads may need more, light tenants less).
+  assert.match(envExampleSource, /^HERMES_RUN_TIMEOUT_MS=/m);
+  assert.match(envExampleSource, /^HERMES_POLL_INTERVAL_MS=/m);
+
+  // docker-compose.yml must wire the timeout default at 1200000ms (the
+  // post-v0.1.12.12 calibration) and pass HERMES_POLL_INTERVAL_MS through.
+  assert.match(composeSource, /HERMES_RUN_TIMEOUT_MS:\s*\$\{HERMES_RUN_TIMEOUT_MS:-1200000\}/);
+  assert.match(composeSource, /HERMES_POLL_INTERVAL_MS:\s*\$\{HERMES_POLL_INTERVAL_MS:-\}/);
+});
+
+test('deploy workflow force-recreates every docker-compose service', () => {
+  // Every service in docker-compose.yml runs the shared ARIES_APP_IMAGE and
+  // imports backend code, so each one must be force-recreated onto the new
+  // image during deploy. Omitting a worker leaves it running stale code
+  // indefinitely (restart: unless-stopped never re-pulls) — that gap caused
+  // the 2026-06-09 incident where aries-insights-sync-worker ran a 6-day-old
+  // image. This test fails when a compose service is added (or renamed)
+  // in the retired workflow fixture. This is NOT the migrated stack contract.
+  const composeSource = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
+  const deploySource = fs.readFileSync(
+    path.join(repoRoot, 'tests', 'fixtures', 'retired-deploy.yml'),
+    'utf8',
+  );
+  const schemaFenceSource = fs.readFileSync(
+    path.join(repoRoot, 'scripts', 'release', 'apply-schema-with-worker-restore.sh'),
+    'utf8',
+  );
+
+  // Services that do NOT run the shared ARIES_APP_IMAGE are exempt from the
+  // app-image recreate command. aries-autoheal has its own pinned image and a
+  // dedicated deploy block; aries-hermes is an opt-in, digest-pinned profile.
+  const recreateExemptServices: string[] = ['aries-autoheal', 'aries-hermes'];
+
+  const composeServices: string[] = [];
+  let inServicesBlock = false;
+  for (const line of composeSource.split('\n')) {
+    if (/^\s*#/.test(line)) {
+      continue; // comments never open, close, or define a service
+    }
+    if (/^services:\s*$/.test(line)) {
+      inServicesBlock = true;
+      continue;
+    }
+    if (inServicesBlock && /^\S/.test(line)) {
+      inServicesBlock = false;
+    }
+    if (!inServicesBlock) {
+      continue;
+    }
+    const serviceMatch = line.match(/^ {2}([A-Za-z0-9][A-Za-z0-9._-]*):\s*(?:#.*)?$/);
+    if (serviceMatch) {
+      composeServices.push(serviceMatch[1]);
+    }
+  }
+  assert.ok(
+    composeServices.includes('aries-app'),
+    'compose service parser failed to find aries-app — parser or compose layout changed',
+  );
+
+  // The full command each recreate block must use: the ARIES_APP_IMAGE pin is
+  // load-bearing (without it compose resolves the host's .env image and the
+  // worker can be "recreated" onto a stale image anyway), so it is part of the
+  // required string, not just the compose flags.
+  const recreateCommand =
+    'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always';
+
+  // Commented-out recreate lines must not count as coverage.
+  const activeDeployLines = deploySource
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#'));
+
+  // aries-app itself is recreated through the sourced fail-closed verifier;
+  // require both the workflow call and the helper's pinned compose command.
+  assert.match(deploySource, /^\s*SERVICE_NAME: aries-app$/m);
+  assert.match(
+    deploySource,
+    /replace_application_and_verify "\$\{TARGET_IMAGE\}" "\$\{target_image_id\}" "\$\{SERVICE_NAME\}"/,
+    'deploy.yml is missing the fail-closed application verifier call',
+  );
+  assert.match(
+    schemaFenceSource,
+    /ARIES_APP_IMAGE="\$\{target_image\}" docker compose up -d --no-deps --force-recreate --pull always "\$\{service_name\}"/,
+    'the application verifier is missing the pinned force-recreate command',
+  );
+
+  // Only lines that ARE the recreate command count as coverage — an echo/log
+  // line or other quotation of the command text must not satisfy parity.
+  const recreatedServices = new Set<string>(['aries-app']);
+  for (const line of activeDeployLines) {
+    const trimmed = line.trimStart();
+    let target: string | null = null;
+    if (trimmed.startsWith(`if ! ${recreateCommand} `)) {
+      target = trimmed.slice(`if ! ${recreateCommand} `.length);
+    } else if (trimmed.startsWith(`${recreateCommand} `)) {
+      target = trimmed.slice(`${recreateCommand} `.length);
+    }
+    if (target === null) {
+      continue;
+    }
+    // Service names start alphanumeric, so a trailing flag (e.g. a future
+    // --remove-orphans) is never mistaken for a recreate target.
+    const nameMatch = target.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)/);
+    if (nameMatch) {
+      recreatedServices.add(nameMatch[1]);
+    }
+  }
+  assert.match(
+    schemaFenceSource,
+    /ARIES_APP_IMAGE="\$\{target_image\}" docker compose up -d --no-deps --force-recreate --pull always "\$\{scheduled_worker_service\}"/,
+    'the exact-restore helper must retain the pinned scheduled-worker recreate command',
+  );
+  recreatedServices.add('aries-scheduled-posts-worker');
+
+  const missingFromDeploy = composeServices.filter(
+    (name) => !recreatedServices.has(name) && !recreateExemptServices.includes(name),
+  );
+  assert.deepEqual(
+    missingFromDeploy,
+    [],
+    `docker-compose.yml services missing a force-recreate block in deploy.yml: ${missingFromDeploy.join(', ')}. ` +
+      `Each block must be an uncommented line starting with: [if ! ]${recreateCommand} <service>. ` +
+      'If the recreate blocks exist, check whether their command string (image pin, flags, flag order) drifted from the one this test requires.',
+  );
+
+  // The reverse direction catches a renamed/removed compose service leaving a
+  // stale recreate line behind (docker compose up would fail on it).
+  const staleRecreateTargets = [...recreatedServices].filter(
+    (name) => !composeServices.includes(name),
+  );
+  assert.deepEqual(
+    staleRecreateTargets,
+    [],
+    `deploy.yml recreates services that no longer exist in docker-compose.yml: ${staleRecreateTargets.join(', ')}`,
+  );
+});
+
+test('deploy workflow fences scheduled publishing across schema/app rollout and fails closed', () => {
+  const deploySource = fs.readFileSync(
+    path.join(repoRoot, 'tests', 'fixtures', 'retired-deploy.yml'),
+    'utf8',
+  );
+  const schemaFenceSource = fs.readFileSync(
+    path.join(repoRoot, 'scripts', 'release', 'apply-schema-with-worker-restore.sh'),
+    'utf8',
+  );
+
+  const applySchema = deploySource.indexOf('source ./scripts/release/apply-schema-with-worker-restore.sh');
+  const startApp = deploySource.indexOf(
+    'replace_application_and_verify "${TARGET_IMAGE}" "${target_image_id}" "${SERVICE_NAME}"',
+  );
+  const quarantineLegacy = deploySource.indexOf('scripts/run-scheduled-dispatch-cutover.js');
+  const protocolBoundary = deploySource.indexOf('mark_scheduled_worker_protocol_boundary');
+  const restartWorker = deploySource.indexOf(
+    'replace_scheduled_worker_and_verify "${TARGET_IMAGE}" "${target_image_id}"',
+  );
+
+  for (const [name, index] of [
+    ['scheduled worker stop + target-image schema fence', applySchema],
+    ['legacy dispatch quarantine', quarantineLegacy],
+    ['scheduled-worker protocol boundary', protocolBoundary],
+    ['app rollout', startApp],
+    ['scheduled worker restart', restartWorker],
+  ] as const) {
+    assert.notEqual(index, -1, `deploy workflow is missing required ${name}`);
+  }
+  assert.ok(
+    applySchema < quarantineLegacy
+      && quarantineLegacy < protocolBoundary
+      && protocolBoundary < startApp,
+    'mutation traffic stays quiesced through schema and quarantine; the compatible app is exposed only afterward',
+  );
+  assert.ok(startApp < restartWorker, 'scheduled worker restarts only after the app verifier succeeds');
+
+  const quiesceOptIn = deploySource.indexOf('ARIES_QUIESCE_APPLICATION_DURING_SCHEMA=1');
+  const helperStopApp = schemaFenceSource.indexOf('docker compose stop "${application_service}"');
+  const helperStopWorker = schemaFenceSource.indexOf('docker compose stop "${scheduled_worker_service}"');
+  const helperSchema = schemaFenceSource.indexOf('scripts/init-db.js');
+  for (const [name, index] of [
+    ['deploy mutation-quiesce opt-in', quiesceOptIn],
+    ['application mutation quiesce', helperStopApp],
+    ['scheduled worker stop', helperStopWorker],
+  ] as const) {
+    assert.notEqual(index, -1, `deploy sequence is missing ${name}`);
+  }
+  assert.ok(
+    helperStopApp < helperStopWorker && helperStopWorker < helperSchema,
+    'the old application must stop accepting mutations before the old worker stops and schema work begins',
+  );
+
+  const helperAppRecreate = schemaFenceSource.indexOf(
+    'ARIES_APP_IMAGE="${target_image}" docker compose up -d --no-deps --force-recreate --pull always "${service_name}"',
+  );
+  const helperAppHealthyGate = schemaFenceSource.indexOf('if [[ "${healthy}" != "1" ]]');
+  assert.notEqual(helperAppRecreate, -1, 'application verifier is missing its recreate command');
+  assert.notEqual(helperAppHealthyGate, -1, 'application verifier is missing its health gate');
+  assert.ok(
+    helperAppRecreate < helperAppHealthyGate,
+    'the application verifier starts the target app before evaluating health',
+  );
+
+  const helperRecreate = schemaFenceSource.indexOf(
+    'ARIES_APP_IMAGE="${target_image}" docker compose up -d --no-deps --force-recreate --pull always "${scheduled_worker_service}"',
+  );
+  const helperRunningGate = schemaFenceSource.indexOf(
+    'replacement_running="$(docker inspect -f \'{{.State.Running}}\' "${replacement_id}")"',
+  );
+  const helperImageGate = schemaFenceSource.indexOf(
+    'replacement_image_id="$(docker inspect -f \'{{.Image}}\' "${replacement_id}")"',
+  );
+  const helperManifestGate = schemaFenceSource.indexOf(
+    'manifest_json="$(ARIES_APP_IMAGE="${target_image}" docker compose config --format json)"',
+  );
+  const helperReadinessGate = schemaFenceSource.indexOf(
+    '-e ARIES_SCHEDULED_POSTS_READINESS_CHECK=1 "${scheduled_worker_service}"',
+  );
+  const completeCutover = schemaFenceSource.lastIndexOf('  complete_scheduled_worker_cutover');
+  for (const [name, index] of [
+    ['helper recreate', helperRecreate],
+    ['replacement running gate', helperRunningGate],
+    ['replacement image gate', helperImageGate],
+    ['replacement manifest gate', helperManifestGate],
+    ['replacement functional-readiness gate', helperReadinessGate],
+    ['cutover disarm', completeCutover],
+  ] as const) {
+    assert.notEqual(index, -1, `exact-restore helper is missing ${name}`);
+  }
+  assert.ok(
+    helperManifestGate < helperReadinessGate &&
+      helperReadinessGate < helperRecreate &&
+      helperRecreate < helperRunningGate &&
+      helperRunningGate < helperImageGate &&
+      helperImageGate < completeCutover,
+    'publishing must stay stopped through manifest/readiness and cutover must stay armed through running-image verification',
+  );
+
+  assert.doesNotMatch(
+    deploySource,
+    /if ! ARIES_APP_IMAGE="\$\{TARGET_IMAGE\}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker/,
+    'the scheduled worker is required for a successful deploy, not warning-only',
+  );
+  assert.match(
+    deploySource,
+    /if \[\[ "\$\{worker_mismatches\}" -ne 0 \]\]; then[\s\S]*?exit 1/,
+    'worker manifest/image/running mismatches must fail the deploy closed',
+  );
+
+  assert.match(
+    schemaFenceSource,
+    /scheduled_worker_service="aries-scheduled-posts-worker"[\s\S]*?previous_scheduled_worker_id="\$\(docker compose ps -q "\$\{scheduled_worker_service\}"\)"/,
+    'deploy captures the exact pre-rollout worker container before stopping it',
+  );
+  assert.match(
+    schemaFenceSource,
+    /trap restore_previous_scheduled_worker_on_exit EXIT[\s\S]*?scripts\/init-db\.js/,
+    'the exact old worker restore remains armed across every pre-restart failure',
+  );
+  assert.match(
+    schemaFenceSource,
+    /PGOPTIONS="-c lock_timeout=5s -c statement_timeout=120s"[\s\S]{0,220}timeout --signal=TERM 180s[\s\S]{0,220}scripts\/init-db\.js/,
+    'deploy-time init-db uses bounded process, PostgreSQL lock, and statement waits',
+  );
+
+  const composeSource = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
+  assert.match(
+    composeSource,
+    /aries-scheduled-posts-worker:[\s\S]*?ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS: \$\{ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS:-350000\}[\s\S]*?stop_grace_period: 6m/,
+    'compose gives the worker drain longer than the provider timeout and aligns the in-process bound',
+  );
+  assert.match(
+    composeSource,
+    /aries-app:[\s\S]*?PGOPTIONS: \$\{PGOPTIONS:-\}/,
+    'the one-shot schema container receives the workflow PGOPTIONS value',
+  );
+});
+
+test('legacy dist deploy shim cannot reintroduce the stale public onboarding path', () => {
+  if (!fs.existsSync(distComposePath)) {
+    assert.ok(true);
+    return;
+  }
+
+  const distComposeSource = fs.readFileSync(distComposePath, 'utf8');
+  assert.doesNotMatch(distComposeSource, /\/onboarding\/start/);
+});

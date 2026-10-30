@@ -1,0 +1,12 @@
+SYNTHETIC FIXTURE — plain-text `agent-reach doctor` output (no --json support).
+See doctor-all-fresh.json for why these are synthetic. The parser reads one
+line per platform and classifies UNKNOWN when a platform is not mentioned at
+all — facebook is deliberately absent below to pin that.
+
+Agent Reach doctor
+  web           ok        zero-config
+  youtube       ok        yt-dlp 2026.05.01
+  twitter       LOGIN REQUIRED   cookie expired, run configure
+  reddit        ok        logged in as throwaway-acct
+  instagram     ok        logged in
+  github        ok        gh authenticated

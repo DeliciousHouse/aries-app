@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "onboarding_response_shapes.v1",
+  "title": "Onboarding Response Shapes v1",
+  "type": "object",
+  "$defs": {
+    "jsonValue": {
+      "description": "Arbitrary JSON value mirrored from backend `Json` union.",
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      ]
+    },
+    "errorReason": {
+      "type": "string",
+      "anyOf": [
+        {
+          "const": "workflow_request_failed"
+        },
+        {
+          "const": "missing_required_query:tenant_id"
+        },
+        {
+          "pattern": "^missing_required_fields:[a-z_,]+$"
+        },
+        {
+          "pattern": "^workflow_unreachable:.+$"
+        }
+      ]
+    },
+    "onboardingStartRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tenant_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signup_event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metadata": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "tenant_type",
+        "signup_event_id"
+      ]
+    },
+    "onboardingStartSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "ok"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "tenant_type": {
+          "type": "string"
+        },
+        "signup_event_id": {
+          "type": "string"
+        },
+        "workflow_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "raw": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "onboarding_status": {
+          "$ref": "#/$defs/onboarding_status"
+        }
+      },
+      "required": [
+        "status",
+        "tenant_id",
+        "tenant_type",
+        "signup_event_id",
+        "onboarding_status",
+        "workflow_status",
+        "raw"
+      ]
+    },
+    "onboardingStartError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string"
+        },
+        "tenant_type": {
+          "type": "string"
+        },
+        "signup_event_id": {
+          "type": "string"
+        },
+        "workflow_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "raw": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "reason": {
+          "$ref": "#/$defs/errorReason"
+        },
+        "onboarding_status": {
+          "const": "error"
+        }
+      },
+      "required": [
+        "onboarding_status",
+        "reason"
+      ]
+    },
+    "onboardingStatusPathParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "tenantId"
+      ]
+    },
+    "onboardingStatusQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signup_event_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "onboardingStatusSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_status": {
+          "const": "ok"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "signup_event_id": {
+          "type": "string"
+        },
+        "validation_status": {
+          "$ref": "#/$defs/validation_status"
+        },
+        "progress_hint": {
+          "$ref": "#/$defs/onboarding_progress_hint"
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "draft": {
+              "type": "boolean"
+            },
+            "validated": {
+              "type": "boolean"
+            },
+            "validation_report": {
+              "type": "boolean"
+            },
+            "idempotency_marker": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "draft",
+            "validated",
+            "validation_report",
+            "idempotency_marker"
+          ]
+        },
+        "onboarding_status": {
+          "const": "ok"
+        },
+        "provisioning_status": {
+          "$ref": "#/$defs/provisioning_status"
+        }
+      },
+      "required": [
+        "request_status",
+        "onboarding_status",
+        "tenant_id",
+        "provisioning_status",
+        "validation_status",
+        "progress_hint",
+        "artifacts"
+      ]
+    },
+    "onboardingStatusError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "onboarding_status": {
+          "const": "error"
+        },
+        "reason": {
+          "$ref": "#/$defs/errorReason"
+        }
+      },
+      "required": [
+        "onboarding_status",
+        "reason"
+      ]
+    },
+    "onboardingStatus": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "error"
+      ]
+    },
+    "onboarding_status": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "duplicate",
+        "validated",
+        "needs_repair"
+      ]
+    },
+    "provisioning_status": {
+      "type": "string",
+      "enum": [
+        "validated",
+        "needs_repair",
+        "in_progress",
+        "duplicate",
+        "not_found"
+      ]
+    },
+    "validation_status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "unknown"
+      ]
+    },
+    "onboarding_progress_hint": {
+      "type": "string",
+      "enum": [
+        "validated",
+        "repair_needed",
+        "duplicate_request",
+        "waiting_for_validation",
+        "not_started"
+      ]
+    }
+  }
+}

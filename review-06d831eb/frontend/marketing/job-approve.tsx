@@ -1,0 +1,955 @@
+"use client";
+
+import Link from 'next/link';
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { CheckCircle2 } from 'lucide-react';
+import MediaPreview from '@/frontend/components/media-preview';
+import { APPROVAL_DENIAL_REASON_CODES } from '@/lib/marketing/approval-denial-reason-codes';
+import type {
+  ApproveJobResult,
+  MarketingArtifactCard,
+  MarketingDashboardAsset,
+  MarketingReviewBundle,
+  MarketingReviewPreviewCard,
+  MarketingStageCard,
+  GetSocialContentJobStatusResponse,
+  MarketingApiError,
+  MarketingStage,
+  PostMarketingJobApproveRequest,
+} from '@/lib/api/marketing';
+import { useMarketingJobApprove } from '@/hooks/use-marketing-job-approve';
+import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
+import StatusBadge from '../components/status-badge';
+import { selectableMarketingChannels } from '@/lib/marketing-channels';
+
+type ApproveResult = ApproveJobResult | MarketingApiError;
+type JobStatusResult = GetSocialContentJobStatusResponse | MarketingApiError;
+type MarketingJobApproveScreenVariant = 'marketing' | 'social-content';
+const PLATFORM_VALUES = ['facebook', 'meta-ads', 'instagram', 'x', 'youtube', 'linkedin', 'reddit'] as const;
+
+function platformLabel(platform: string) {
+  if (platform === 'facebook') return 'Facebook Page';
+  if (platform === 'meta-ads') return <>Meta Ads <span className="ml-2 text-xs">Coming soon</span></>;
+  return platform;
+}
+
+export interface MarketingJobApproveScreenProps {
+  baseUrl?: string;
+  defaultJobId?: string;
+  defaultApprovedBy?: string;
+  copyVariant?: MarketingJobApproveScreenVariant;
+  jobStatusPath?: string;
+  jobApprovePath?: string;
+}
+
+const APPROVE_SCREEN_COPY: Record<
+  MarketingJobApproveScreenVariant,
+  {
+    headerEyebrow: string;
+    headerTitle: string;
+    headerDescription: string;
+    controlTitle: string;
+    controlDescription: string;
+    jobHint: string;
+    notHoldingToken: string;
+    loadingStatus: string;
+    loadErrorTitle: string;
+    idleHint: string;
+    noApprovalText: string;
+    approveSubmittedText: string;
+    approveResumedText: string;
+    approveAlreadyResolvedText: string;
+    denyRecordedText: string;
+  }
+> = {
+  marketing: {
+    headerEyebrow: 'Social content approval',
+    headerTitle: 'Approval package',
+    headerDescription: 'Review the current package, confirm what is ready, and move the social content into the next approved stage.',
+    controlTitle: 'Confirm the current social content package',
+    controlDescription: 'Record the decision, keep the current package visible, and refresh the latest social content status from the same screen.',
+    jobHint: 'Use the current social content identifier.',
+    notHoldingToken: 'This social content is not holding an active launch approval token, so there is nothing real to resume yet.',
+    loadingStatus: 'Loading social content status…',
+    loadErrorTitle: 'Could not load social content',
+    idleHint: 'Load social content to review its launch state before approving.',
+    noApprovalText: 'This social content does not currently require approval. The workflow may have already progressed or been resolved.',
+    approveSubmittedText: 'Approval submitted and the workflow is resuming.',
+    approveResumedText: 'Approval succeeded and resume was accepted.',
+    approveAlreadyResolvedText: 'This approval was already resolved, so nothing new was consumed.',
+    denyRecordedText: 'Denial recorded; the job was stopped. Structured reasons sync to memory when enabled.',
+  },
+  'social-content': {
+    headerEyebrow: 'Weekly social content review',
+    headerTitle: 'Review social content',
+    headerDescription: 'Review the current weekly content plan, confirm what is ready, and move the content job into the next approved stage.',
+    controlTitle: 'Confirm the current weekly content plan',
+    controlDescription: 'Record the decision, keep the current package visible, and refresh the latest content job status from the same screen.',
+    jobHint: 'Use the current content job identifier.',
+    notHoldingToken: 'This content job is not holding an active approval token, so there is nothing real to resume yet.',
+    loadingStatus: 'Loading content job status…',
+    loadErrorTitle: 'Could not load content job',
+    idleHint: 'Load a content job to review its weekly posts before approving.',
+    noApprovalText: 'This content job does not currently require approval. The workflow may have already progressed or been resolved.',
+    approveSubmittedText: 'Approval submitted. The weekly content job is now resuming.',
+    approveResumedText: 'Approval succeeded and the content job resume was accepted.',
+    approveAlreadyResolvedText: 'This content approval was already resolved, so nothing new was consumed.',
+    denyRecordedText: 'Denial recorded; the weekly content job was stopped.',
+  },
+};
+
+function isErrorResult(value: unknown): value is MarketingApiError {
+  return !!value && typeof value === 'object' && 'error' in value;
+}
+
+function StageCard({ stage }: { stage: MarketingStageCard }) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-2">
+      <div className="flex justify-between gap-4 flex-wrap">
+        <strong>{stage.label}</strong>
+        <StatusBadge status={stage.status as any} />
+      </div>
+      <p className="text-white/60 m-0">{stage.summary}</p>
+      {stage.highlight ? <span className="text-white/50">{stage.highlight}</span> : null}
+    </div>
+  );
+}
+
+function ArtifactPreview({ artifact }: { artifact: MarketingArtifactCard }) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-2">
+      <div className="flex justify-between gap-4 flex-wrap">
+        <strong>{artifact.title}</strong>
+        <StatusBadge status={artifact.status as any} />
+      </div>
+      <p className="text-white/60 m-0">{artifact.summary}</p>
+      {artifact.details.length > 0 ? (
+        <ul className="m-0 pl-5 text-white/60">
+          {artifact.details.slice(0, 3).map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard }) {
+  const imageAssets = preview.mediaAssets.filter((asset) => !asset.contentType.startsWith('video/'));
+  const videoAssets = preview.mediaAssets.filter((asset) => asset.contentType.startsWith('video/'));
+
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+      <div>
+        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">{preview.channelType}</p>
+        <strong>{preview.platformName}</strong>
+      </div>
+      <p className="text-white/60 m-0">{preview.summary}</p>
+      {preview.hook ? (
+        <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-100">
+          <strong className="block mb-1">Hook</strong>
+          <span>{preview.hook}</span>
+        </div>
+      ) : null}
+      <div className="grid gap-2 text-sm text-white/70">
+        {preview.headline ? <span><strong className="text-white">Headline:</strong> {preview.headline}</span> : null}
+        {preview.cta ? <span><strong className="text-white">CTA:</strong> {preview.cta}</span> : null}
+      </div>
+      {preview.caption ? (
+        <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-4 whitespace-pre-wrap text-sm text-white/75">
+          {preview.caption}
+        </div>
+      ) : null}
+      {preview.details.length > 0 ? (
+        <ul className="m-0 pl-5 text-white/60">
+          {preview.details.map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+      ) : null}
+      {imageAssets.length > 0 ? (
+        <div className="grid gap-3">
+          <div className="grid sm:grid-cols-2 gap-3">
+            {imageAssets.map((asset) => (
+              <a
+                key={asset.id}
+                href={asset.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-[1.25rem] overflow-hidden border border-white/10 bg-black/30"
+              >
+                <MediaPreview
+                  src={asset.url}
+                  alt={asset.label}
+                  contentType={asset.contentType}
+                  className="h-44 w-full"
+                  emptyLabel="Preview pending"
+                  nonImageLabel={asset.label}
+                />
+              </a>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {preview.assetLinks.length > 0 ? (
+        <div className="flex flex-wrap gap-3">
+          {preview.assetLinks.map((asset) => (
+            <a
+              key={asset.id}
+              href={asset.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-violet-300 hover:text-violet-300 transition-colors"
+            >
+              {asset.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
+      {videoAssets.length > 0 ? (
+        <div className="grid gap-3">
+          <strong className="text-sm text-white">Rendered videos</strong>
+          <div className="grid gap-3">
+            {videoAssets.map((asset) => (
+              <a
+                key={asset.id}
+                href={asset.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-[1.25rem] overflow-hidden border border-white/10 bg-black/30"
+              >
+                <MediaPreview
+                  src={asset.url}
+                  poster={asset.posterUrl}
+                  alt={asset.label}
+                  contentType={asset.contentType}
+                  className="h-44 w-full"
+                  imageClassName="h-full w-full object-contain bg-black"
+                  emptyLabel="Preview pending"
+                  nonImageLabel={asset.label}
+                />
+              </a>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBundle }) {
+  return (
+    <div className="grid gap-5">
+      <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5 text-cyan-100">
+        <strong className="block mb-2">{reviewBundle.title}</strong>
+        <span>{reviewBundle.approvalMessage}</span>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        {reviewBundle.landingPage ? (
+          <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+            <strong>Landing page preview</strong>
+            <div className="grid gap-2 text-white/70">
+              <span><strong className="text-white">Headline:</strong> {reviewBundle.landingPage.headline || 'n/a'}</span>
+              <span><strong className="text-white">Subheadline:</strong> {reviewBundle.landingPage.subheadline || 'n/a'}</span>
+              <span><strong className="text-white">CTA:</strong> {reviewBundle.landingPage.cta || 'n/a'}</span>
+              {reviewBundle.landingPage.slug ? <span><strong className="text-white">Slug:</strong> {reviewBundle.landingPage.slug}</span> : null}
+              {reviewBundle.landingPage.asset ? (
+                <a href={reviewBundle.landingPage.asset.url} target="_blank" rel="noreferrer" className="text-violet-300 hover:text-violet-300 transition-colors">
+                  Open landing page artifact
+                </a>
+              ) : null}
+            </div>
+            {reviewBundle.landingPage.sections.length > 0 ? (
+              <ul className="m-0 pl-5 text-white/60">
+                {reviewBundle.landingPage.sections.map((section) => (
+                  <li key={section}>{section}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {reviewBundle.scriptPreview ? (
+          <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+            <strong>Copy and script preview</strong>
+            {reviewBundle.scriptPreview.metaAdHook ? <span className="text-white/70"><strong className="text-white">Meta hook:</strong> {reviewBundle.scriptPreview.metaAdHook}</span> : null}
+            {reviewBundle.scriptPreview.shortVideoOpeningLine ? (
+              <span className="text-white/70"><strong className="text-white">Video opening line:</strong> {reviewBundle.scriptPreview.shortVideoOpeningLine}</span>
+            ) : null}
+            {reviewBundle.scriptPreview.metaAdBody.length > 0 ? (
+              <ul className="m-0 pl-5 text-white/60">
+                {reviewBundle.scriptPreview.metaAdBody.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+            {reviewBundle.scriptPreview.shortVideoBeats.length > 0 ? (
+              <ul className="m-0 pl-5 text-white/60">
+                {reviewBundle.scriptPreview.shortVideoBeats.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div>
+        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Platform drafts to review before approval</p>
+        {reviewBundle.platformPreviews.length === 0 ? (
+          <p className="text-white/60">No platform-specific previews are available yet.</p>
+        ) : (
+          <div className="grid xl:grid-cols-2 gap-4">
+            {reviewBundle.platformPreviews.map((preview) => (
+              <ReviewPreviewCard key={preview.id} preview={preview} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DashboardAssetPreviewCard({ asset }: { asset: MarketingDashboardAsset }) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+      <MediaPreview
+        src={asset.previewUrl || asset.thumbnailUrl}
+        poster={asset.thumbnailUrl}
+        alt={asset.title}
+        contentType={asset.contentType}
+        className="h-44 overflow-hidden rounded-[1.1rem] border border-white/8 bg-black/20"
+        imageClassName={asset.contentType?.startsWith('video/') ? 'h-full w-full object-contain bg-black' : undefined}
+        emptyLabel={`${asset.type.replace(/_/g, ' ')} pending`}
+        nonImageLabel={asset.type === 'landing_page' ? 'Landing page preview available' : 'Asset preview available'}
+      />
+      <div className="flex justify-between gap-4 flex-wrap">
+        <div>
+          <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">{asset.type.replace(/_/g, ' ')}</p>
+          <strong>{asset.title}</strong>
+          <p className="mt-2 text-white/60">{asset.platformLabel}</p>
+        </div>
+        <StatusBadge status={asset.status as any} />
+      </div>
+      <p className="text-white/60 m-0">{asset.summary}</p>
+      {asset.destinationUrl ? <span className="text-sm text-white/70">{asset.destinationUrl}</span> : null}
+    </div>
+  );
+}
+
+function DashboardListCard(props: {
+  title: string
+  subtitle: string
+  summary: string
+  status: string
+  previewUrl?: string | null
+  posterUrl?: string | null
+  previewContentType?: string | null
+}) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+      <MediaPreview
+        src={props.previewUrl}
+        poster={props.posterUrl}
+        alt={props.title}
+        contentType={props.previewContentType}
+        className="h-36 overflow-hidden rounded-[1.1rem] border border-white/8 bg-black/20"
+        imageClassName={props.previewContentType?.startsWith('video/') ? 'h-full w-full object-contain bg-black' : undefined}
+        emptyLabel="Preview pending"
+        nonImageLabel="Preview available"
+      />
+      <div className="flex justify-between gap-4 flex-wrap">
+        <div>
+          <strong>{props.title}</strong>
+          <p className="mt-2 text-white/60">{props.subtitle}</p>
+        </div>
+        <StatusBadge status={props.status as any} />
+      </div>
+      <p className="text-white/60 m-0">{props.summary}</p>
+    </div>
+  );
+}
+
+function dashboardPreviewUrl(
+  assetId: string | null | undefined,
+  assetsById: Map<string, MarketingDashboardAsset>
+): { url: string | null; posterUrl: string | null; contentType: string | null } {
+  if (!assetId) {
+    return { url: null, posterUrl: null, contentType: null };
+  }
+
+  const asset = assetsById.get(assetId);
+  return {
+    url: asset?.previewUrl || asset?.thumbnailUrl || null,
+    posterUrl: asset?.thumbnailUrl || null,
+    contentType: asset?.contentType || null,
+  };
+}
+
+function Field({
+  label,
+  children,
+  hint
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="block space-y-2">
+      <span className="text-xs uppercase tracking-[0.22em] text-white/70">{label}</span>
+      {children}
+      {hint ? <span className="text-sm text-white/50">{hint}</span> : null}
+    </label>
+  );
+}
+
+export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps) {
+  const copy = APPROVE_SCREEN_COPY[props.copyVariant ?? 'marketing'];
+  const marketingApprove = useMarketingJobApprove({
+    baseUrl: props.baseUrl,
+    jobApprovePath:
+      props.jobApprovePath ?? (props.copyVariant === 'social-content' ? '/api/social-content/jobs' : undefined),
+  });
+  const marketingStatus = useMarketingJobStatus({
+    baseUrl: props.baseUrl,
+    jobId: props.defaultJobId,
+    jobStatusPath:
+      props.jobStatusPath ?? (props.copyVariant === 'social-content' ? '/api/social-content/jobs' : undefined),
+    autoLoad: false,
+  });
+
+  const [jobId, setJobId] = useState(props.defaultJobId ?? '');
+  const [approvedBy, setApprovedBy] = useState(props.defaultApprovedBy ?? 'Client reviewer');
+  const [resumePublishIfNeeded, setResumePublishIfNeeded] = useState(true);
+  const [approvedStages, setApprovedStages] = useState<MarketingStage[]>([]);
+  const [platforms, setPlatforms] = useState<string[]>([]);
+  const [livePublishPlatforms, setLivePublishPlatforms] = useState<string[]>([]);
+  const [videoRenderPlatforms, setVideoRenderPlatforms] = useState<string[]>([]);
+  const [denialReasonCode, setDenialReasonCode] = useState<string>('');
+  const [denialNote, setDenialNote] = useState('');
+
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [jobStatus, setJobStatus] = useState<JobStatusResult | null>(null);
+  const [loadedStatusJobId, setLoadedStatusJobId] = useState<string | null>(null);
+  const [approveResult, setApproveResult] = useState<ApproveResult | null>(null);
+
+  const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;
+  const activeApprovalCheckpoint =
+    !!statusSuccess?.approval?.required &&
+    statusSuccess.approval.status === 'awaiting_approval' &&
+    !!statusSuccess.marketing_stage;
+  const normalizedJobId = jobId.trim();
+  const canSubmit =
+    normalizedJobId.length > 0 &&
+    loadedStatusJobId === normalizedJobId &&
+    activeApprovalCheckpoint &&
+    approvedBy.trim().length > 0 &&
+    !loadingStatus &&
+    !submitting;
+
+  useEffect(() => {
+    if (!props.defaultJobId?.trim()) {
+      return;
+    }
+
+    void handleLoadStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.defaultJobId]);
+
+  async function handleLoadStatus() {
+    const requestedJobId = jobId.trim();
+    if (!requestedJobId) return;
+    setLoadingStatus(true);
+    setLoadedStatusJobId(null);
+    setJobStatus(null);
+    setApproveResult(null);
+    try {
+      marketingStatus.reset();
+      const result = await marketingStatus.load(requestedJobId);
+      setJobStatus(result);
+      if (result && !isErrorResult(result) && result.marketing_stage) {
+        setLoadedStatusJobId(requestedJobId);
+        setApprovedStages([result.marketing_stage as MarketingStage]);
+        setPlatforms(selectableMarketingChannels(result.publishConfig.platforms));
+        setLivePublishPlatforms(selectableMarketingChannels(result.publishConfig.livePublishPlatforms));
+        setVideoRenderPlatforms(result.publishConfig.videoRenderPlatforms);
+      }
+    } finally {
+      setLoadingStatus(false);
+    }
+  }
+
+  function handleJobIdChange(value: string) {
+    setJobId(value);
+    setLoadedStatusJobId(null);
+    setJobStatus(null);
+    setApproveResult(null);
+    marketingStatus.reset();
+  }
+
+  function toggleValue(value: string, setter: Dispatch<SetStateAction<string[]>>) {
+    if (value === 'meta-ads') return;
+    setter((prev) =>
+      prev.includes(value) ? prev.filter((entry) => entry !== value) : [...prev, value]
+    );
+  }
+
+  async function submitApprovalDecision(approved: boolean) {
+    if (!canSubmit) return;
+
+    const body: PostMarketingJobApproveRequest = {
+      approvedBy: approvedBy.trim(),
+      approved,
+      approvedStages: approvedStages.length > 0 ? approvedStages : undefined,
+      approvalId: !isErrorResult(jobStatus) ? jobStatus?.approval?.approvalId : undefined,
+      resumePublishIfNeeded,
+      publishConfig: {
+        platforms,
+        livePublishPlatforms,
+        videoRenderPlatforms,
+      },
+      ...(approved
+        ? {}
+        : {
+            denialReasonCode: (denialReasonCode || undefined) as PostMarketingJobApproveRequest['denialReasonCode'],
+            denialNote: denialNote.trim() || undefined,
+          }),
+    };
+
+    setSubmitting(true);
+    setApproveResult(null);
+    try {
+      marketingApprove.reset();
+      const result = await marketingApprove.approveJob(jobId.trim(), body);
+      if (!result) {
+        return;
+      }
+      setApproveResult(result);
+      if (!isErrorResult(result)) {
+        const refreshed = await marketingStatus.load(jobId.trim());
+        setJobStatus(refreshed);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleApprove() {
+    await submitApprovalDecision(true);
+  }
+
+  async function handleDeny() {
+    await submitApprovalDecision(false);
+  }
+
+  const approvalMessage = (() => {
+    if (!approveResult) return null;
+    if (isErrorResult(approveResult)) {
+      return { tone: 'danger', text: `Approval failed: ${approveResult.error}` };
+    }
+    if (approveResult.reason === 'approval_not_available') {
+      return {
+        tone: 'danger',
+        text: copy.notHoldingToken,
+      };
+    }
+    if (approveResult.approval_status === 'submitted') {
+      return { tone: 'success', text: copy.approveSubmittedText };
+    }
+    if (approveResult.approval_status === 'resumed') {
+      return { tone: 'success', text: copy.approveResumedText };
+    }
+    if (approveResult.approval_status === 'already_resolved') {
+      return { tone: 'success', text: copy.approveAlreadyResolvedText };
+    }
+    if (approveResult.approval_status === 'denied') {
+      return { tone: 'warning', text: copy.denyRecordedText };
+    }
+    return { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
+  })();
+
+  const approveSuccess = approveResult && !isErrorResult(approveResult) ? approveResult : null;
+  const pendingStage = statusSuccess?.approval ? statusSuccess.marketing_stage : null;
+  const loadOrActionFailed = !!(
+    marketingStatus.error ||
+    marketingApprove.error ||
+    (jobStatus && isErrorResult(jobStatus))
+  );
+  const showIdleHint =
+    !loadingStatus &&
+    !loadOrActionFailed &&
+    !statusSuccess &&
+    !approveResult &&
+    !approvalMessage;
+
+  function approvalCheckpointLabel(): string {
+    if (loadingStatus) {
+      return 'Loading…';
+    }
+    if (marketingStatus.error) {
+      return `Status unavailable: ${marketingStatus.error.message}`;
+    }
+    return pendingStage ?? 'Load a job to see the active checkpoint.';
+  }
+
+  return (
+    <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
+      <div className="max-w-7xl mx-auto grid gap-6">
+        <div className="glass rounded-[2.5rem] p-8 md:p-10">
+          <p className="text-xs uppercase tracking-[0.3em] text-violet-300 mb-3">{copy.headerEyebrow}</p>
+          <h1 className="text-4xl font-bold mb-3">{copy.headerTitle}</h1>
+          <p className="text-white/60">{copy.headerDescription}</p>
+        </div>
+
+        <div className="grid xl:grid-cols-2 gap-6">
+      <div className="glass rounded-[2.5rem] p-8">
+        <div className="grid gap-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-3">Approval control</p>
+            <h1 className="text-3xl font-bold mb-3">{copy.controlTitle}</h1>
+            <p className="text-white/60">
+              {copy.controlDescription}
+            </p>
+          </div>
+
+            <Field label="Job ID" hint={copy.jobHint}>
+              <input
+                value={jobId}
+                onChange={(event) => handleJobIdChange(event.target.value)}
+                placeholder="mkt_..."
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+              />
+            </Field>
+
+            <Field label="Approved By">
+              <input
+                value={approvedBy}
+                onChange={(event) => setApprovedBy(event.target.value)}
+                placeholder="Reviewer name"
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+              />
+            </Field>
+
+            <div className="grid gap-2">
+              <span className="text-xs uppercase tracking-[0.22em] text-white/70">Current approval checkpoint</span>
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white/75">
+                {approvalCheckpointLabel()}
+              </div>
+            </div>
+
+            {pendingStage === 'publish' ? (
+              <>
+                <div className="grid gap-2">
+                  <span className="text-xs uppercase tracking-[0.22em] text-white/70">Platforms to package</span>
+                  <div className="flex flex-wrap gap-3">
+                    {PLATFORM_VALUES.map((platform) => {
+                      const active = platforms.includes(platform);
+                      return (
+                        <button
+                          key={platform}
+                          type="button"
+                          onClick={() => toggleValue(platform, setPlatforms)}
+                          disabled={platform === 'meta-ads'}
+                          className={`px-4 py-2 rounded-full border transition-all ${
+                            active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
+                          }`}
+                        >
+                          {platformLabel(platform)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <span className="text-xs uppercase tracking-[0.22em] text-white/70">Live draft publish</span>
+                  <div className="flex flex-wrap gap-3">
+                    {PLATFORM_VALUES.filter((platform) => !['youtube'].includes(platform)).map((platform) => {
+                      const active = livePublishPlatforms.includes(platform);
+                      return (
+                        <button
+                          key={platform}
+                          type="button"
+                          onClick={() => toggleValue(platform, setLivePublishPlatforms)}
+                          disabled={platform === 'meta-ads'}
+                          className={`px-4 py-2 rounded-full border transition-all ${
+                            active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
+                          }`}
+                        >
+                          {platformLabel(platform)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <span className="text-xs uppercase tracking-[0.22em] text-white/70">Video render execution</span>
+                  <div className="flex flex-wrap gap-3">
+                    {['youtube'].map((platform) => {
+                      const active = videoRenderPlatforms.includes(platform);
+                      return (
+                        <button
+                          key={platform}
+                          type="button"
+                          onClick={() => toggleValue(platform, setVideoRenderPlatforms)}
+                          className={`px-4 py-2 rounded-full border transition-all ${
+                            active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
+                          }`}
+                        >
+                          {platform}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            <label className="flex items-center gap-2 text-white/60">
+              <input
+                type="checkbox"
+                checked={resumePublishIfNeeded}
+                onChange={(event) => setResumePublishIfNeeded(event.target.checked)}
+              />
+              Resume publish if needed
+            </label>
+
+            <Field label="Denial reason (optional)" hint="Structured codes mirror to tenant memory when enabled; notes stay in Aries only.">
+              <select
+                value={denialReasonCode}
+                onChange={(event) => setDenialReasonCode(event.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+              >
+                <option value="">No structured reason</option>
+                {APPROVAL_DENIAL_REASON_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Internal denial note (optional)" hint="Stored in Aries only; never sent to memory providers.">
+              <textarea
+                value={denialNote}
+                onChange={(event) => setDenialNote(event.target.value)}
+                rows={3}
+                placeholder="Context for your team…"
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+              />
+            </Field>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleLoadStatus}
+                disabled={loadingStatus || !jobId.trim()}
+                className="px-6 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all disabled:opacity-60"
+              >
+                {loadingStatus ? 'Loading…' : 'Load current status'}
+              </button>
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={!canSubmit}
+                className="px-6 py-3 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60"
+              >
+                {submitting ? 'Approving…' : 'Approve and Resume'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeny}
+                disabled={!canSubmit}
+                className="px-6 py-3 rounded-full bg-white/5 border border-red-500/40 text-red-100 font-semibold hover:bg-red-500/10 transition-all disabled:opacity-60"
+              >
+                {submitting ? 'Denying…' : 'Deny and stop job'}
+              </button>
+            </div>
+
+            {marketingStatus.error || marketingApprove.error || (jobStatus && isErrorResult(jobStatus)) ? (
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">
+                {marketingApprove.error?.message ||
+                  marketingStatus.error?.message ||
+                  (jobStatus && isErrorResult(jobStatus) ? jobStatus.error : '')}
+              </div>
+            ) : null}
+        </div>
+      </div>
+
+      <div className="glass rounded-[2.5rem] p-8">
+        <div className="grid gap-5">
+          <p className="text-xs uppercase tracking-[0.24em] text-white/70">Outcome</p>
+
+            {loadingStatus ? (
+              <p className="text-white/60">{copy.loadingStatus}</p>
+            ) : null}
+
+            {loadOrActionFailed ? (
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+                <strong className="block mb-1">
+                  {jobStatus && isErrorResult(jobStatus) ? copy.loadErrorTitle : 'Request failed'}
+                </strong>
+                <span>
+                  {marketingApprove.error?.message ||
+                    marketingStatus.error?.message ||
+                    (jobStatus && isErrorResult(jobStatus) ? jobStatus.error : '')}
+                </span>
+              </div>
+            ) : null}
+
+            {approvalMessage ? (
+              <div
+                className={approvalMessage.tone === 'success'
+                  ? 'rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-emerald-100'
+                  : 'rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-100'}
+              >
+                <div className="grid gap-3">
+                  <span>{approvalMessage.text}</span>
+                  {approveSuccess?.jobStatusUrl ? (
+                    <Link href={approveSuccess.jobStatusUrl} className="px-5 py-3 rounded-full bg-white/10 border border-white/10 text-white font-semibold inline-flex items-center gap-2 w-fit">
+                      Review updated status
+                      <CheckCircle2 className="w-4 h-4" />
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {showIdleHint ? (
+              <p className="text-white/60">{copy.idleHint}</p>
+            ) : null}
+
+            {statusSuccess && !statusSuccess.approval?.required ? (
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5 text-blue-100">
+                <strong className="block mb-1">No approval required</strong>
+                <span>{copy.noApprovalText}</span>
+              </div>
+            ) : null}
+
+            {statusSuccess && statusSuccess.approval?.required ? (
+              <div className="grid gap-5">
+                {(() => {
+                  const dashboardAssetsById = new Map(statusSuccess.dashboard.assets.map((asset) => [asset.id, asset] as const))
+                  return (
+                    <>
+                {statusSuccess.dashboard.assets.length > 0 || statusSuccess.dashboard.posts.length > 0 || statusSuccess.dashboard.publishItems.length > 0 ? (
+                  <div className="grid gap-5">
+                    {statusSuccess.dashboard.assets.length > 0 ? (
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Assets ready in this approval</p>
+                        <div className="grid xl:grid-cols-2 gap-4">
+                          {statusSuccess.dashboard.assets.slice(0, 8).map((asset) => (
+                            <DashboardAssetPreviewCard key={asset.id} asset={asset} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {statusSuccess.dashboard.posts.length > 0 ? (
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Posts and concepts in scope</p>
+                        <div className="grid xl:grid-cols-2 gap-4">
+                          {statusSuccess.dashboard.posts.slice(0, 6).map((post) => {
+                            const preview = dashboardPreviewUrl(post.previewAssetId, dashboardAssetsById);
+                            return (
+                              <DashboardListCard
+                                key={post.id}
+                                title={post.title}
+                                subtitle={`${post.platformLabel} · ${post.funnelStage || post.objective}`}
+                                summary={post.summary}
+                                status={post.status}
+                                previewUrl={preview.url}
+                                posterUrl={preview.posterUrl}
+                                previewContentType={preview.contentType}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {statusSuccess.dashboard.publishItems.length > 0 ? (
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Publish items</p>
+                        <div className="grid xl:grid-cols-2 gap-4">
+                          {statusSuccess.dashboard.publishItems.slice(0, 6).map((item) => {
+                            const preview = dashboardPreviewUrl(item.previewAssetId, dashboardAssetsById);
+                            return (
+                              <DashboardListCard
+                                key={item.id}
+                                title={item.title}
+                                subtitle={`${item.platformLabel} · ${item.funnelStage || item.objective}`}
+                                summary={item.summary}
+                                status={item.status}
+                                previewUrl={preview.url}
+                                posterUrl={preview.posterUrl}
+                                previewContentType={preview.contentType}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                    </>
+                  )
+                })()}
+
+                <div className="space-y-3">
+                  
+                  <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">
+                    <strong>Status</strong>
+                    <StatusBadge status={statusSuccess.marketing_job_status as any} />
+                  </div>
+                  <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4"><strong>Current stage</strong><span>{statusSuccess.marketing_stage ?? 'none'}</span></div>
+                  
+                </div>
+
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 text-white/70">
+                  <strong className="block text-white mb-2">Publish configuration</strong>
+                  <div className="grid gap-1 text-sm">
+                    <span>Platforms: {statusSuccess.publishConfig.platforms.join(', ') || 'none selected'}</span>
+                    <span>Live draft publish: {statusSuccess.publishConfig.livePublishPlatforms.join(', ') || 'not requested'}</span>
+                    <span>Video render: {statusSuccess.publishConfig.videoRenderPlatforms.join(', ') || 'not requested'}</span>
+                  </div>
+                </div>
+
+                {statusSuccess.approval ? (
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-100">
+                    <strong className="block mb-2">{statusSuccess.approval.title}</strong>
+                    <span>{statusSuccess.approval.message}</span>
+                  </div>
+                ) : null}
+
+                {statusSuccess.reviewBundle ? (
+                  <div className="border-t border-white/5 pt-5 mt-5">
+                    <ReviewBundlePreview reviewBundle={statusSuccess.reviewBundle} />
+                  </div>
+                ) : null}
+
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Stage progress</p>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {statusSuccess.stageCards.map((stage) => (
+                      <StageCard key={stage.stage} stage={stage} />
+                    ))}
+                  </div>
+                </div>
+
+                
+              </div>
+            ) : null}
+        </div>
+      </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default MarketingJobApproveScreen;

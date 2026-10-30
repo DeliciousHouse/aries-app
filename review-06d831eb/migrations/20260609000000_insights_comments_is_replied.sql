@@ -1,0 +1,25 @@
+-- Backfill insights_comments.is_replied on databases that predate it.
+--
+-- PR #561 (feat(insights): Sections 7-9 backend endpoints) introduced is_replied
+-- as an inline column inside `CREATE TABLE IF NOT EXISTS insights_comments` in
+-- scripts/init-db.js. But insights_comments already existed on prod, so
+-- CREATE TABLE IF NOT EXISTS is a no-op there and the column never landed —
+-- confirmed live: information_schema has 0 rows for is_replied on the prod table.
+-- (content_type / aries_post_id avoided this by using ALTER TABLE ADD COLUMN.)
+--
+-- Four builders read c.is_replied and would throw `column "is_replied" does not
+-- exist` (HTTP 500) once a tenant has comment rows:
+--   backend/insights/conversations/conversations-builder.ts
+--   backend/insights/narrative/snapshot-builder.ts
+--   backend/insights/attention/attention-snapshot-builder.ts
+--   backend/insights/trends/trends-snapshot-builder.ts
+--
+-- This file is the migrations/ record; scripts/init-db.js carries the same
+-- idempotent ALTER so the column reaches an existing prod table on container
+-- start (the inline CREATE-TABLE declaration alone would not).
+--
+-- Additive + idempotent. Safe on an empty table (instant, no rewrite).
+-- Reverse (only if no code reads it):
+--   ALTER TABLE insights_comments DROP COLUMN is_replied;
+
+ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS is_replied BOOLEAN NOT NULL DEFAULT false;

@@ -1,0 +1,5 @@
+import { handlePublishRetry } from './handler';
+
+export async function POST(req: Request) {
+  return handlePublishRetry(req);
+}
