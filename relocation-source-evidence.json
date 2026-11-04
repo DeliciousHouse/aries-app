@@ -1,0 +1,46 @@
+{
+  "app_revision": "e5ee8b8e68a7ca89cbd43a50480983df41eeb101",
+  "hermes_revision": "4d55ca91656ac5f83e1506679b7f81e0238e5e16",
+  "files": {
+    "/home/node/aries-app/backend/marketing/ports/hermes.ts": {
+      "exists": true,
+      "sha256": "a8698df287d5c6e3f924e9c02b4966ab2fdefcd74e464ee6c714a5afd495643e",
+      "matches_previous": true
+    },
+    "/home/node/aries-app/backend/marketing/hermes-runtime-contract.ts": {
+      "exists": true,
+      "sha256": "0f1c6383de90040522a98e43550893e61a5e86fe1be7d905202ca2b86378b971",
+      "matches_previous": true
+    },
+    "/home/node/aries-app/backend/memory/hermes-dispatch.ts": {
+      "exists": true,
+      "sha256": "b71c61fef99bb858c755b6a10f57a1c3a529fea29f6b830b49da1fe6758fc688",
+      "matches_previous": true
+    },
+    "/home/node/aries-app/docker-compose.yml": {
+      "exists": true,
+      "sha256": "d87744e89ceaa85332e6977c3137f8eea176d6ab85acbf310a78758205c70abe",
+      "matches_previous": true
+    },
+    "/home/node/.hermes/hermes-agent/cron/jobs.py": {
+      "exists": true,
+      "sha256": "bedc0a7bad306df456b6c84d44b26ebfad2320725d2175f6cf6512b9b5d7ef9a",
+      "matches_previous": true
+    },
+    "/home/node/.hermes/hermes-agent/gateway/platforms/api_server.py": {
+      "exists": true,
+      "sha256": "7ec405dc2a59789582ad9f61a189a41079e621f14642d3c9dc754e312616a868",
+      "matches_previous": true
+    },
+    "/home/node/.hermes/hermes-agent/gateway/platforms/api_server_runs.py": {
+      "exists": true,
+      "sha256": "dd7303663f8062ece1a08b03b2010a7737500162c9b1e7a7f5e802b4b80504c0",
+      "matches_previous": true
+    },
+    "/home/node/.hermes/hermes-agent/gateway/platforms/api_server_run_idempotency.py": {
+      "exists": true,
+      "sha256": "c3f25711695a5aad97b207581e0c532d1291bb9f12ca3c1e32add19e5f0f153a",
+      "matches_previous": true
+    }
+  }
+}

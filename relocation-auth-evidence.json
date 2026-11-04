@@ -1,0 +1,27 @@
+{
+  "root": {
+    "config_key_present": false,
+    "env_key_present": false,
+    "file_candidate_matches_app": false,
+    "precedence": "config.extra.key then scoped secret; on-disk candidate only, not effective live process"
+  },
+  "aries-default": {
+    "config_key_present": true,
+    "env_key_present": true,
+    "file_candidate_matches_app": true,
+    "precedence": "config.extra.key then scoped secret; on-disk candidate only, not effective live process"
+  },
+  "research": {
+    "url_present": true,
+    "path_is_generic_webhook": false,
+    "path_is_v1_runs": true,
+    "app_key_present": true,
+    "receiver_not_proven": true
+  },
+  "scheduler": {
+    "synthetic_cases_passed": 3,
+    "source_sha256": "bedc0a7bad306df456b6c84d44b26ebfad2320725d2175f6cf6512b9b5d7ef9a",
+    "production_module_imported": false,
+    "job_executed": false
+  }
+}

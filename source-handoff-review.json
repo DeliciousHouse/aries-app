@@ -1,0 +1,549 @@
+{
+  "manifest": {
+    "task": "t_6188ad57",
+    "host": "node@n8n-vm",
+    "created": "2026-09-15T08:36:22.654838+00:00",
+    "format": "explicit-file-transfer-set-v2",
+    "owner_scope": "Like-for-like installation preservation; earlier shared-category/name-filter exclusions superseded",
+    "components": [
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/SCOPE-MATRIX-v2.md",
+        "bytes": 14110,
+        "sha256": "4a80ce2c90c57c0fb6fc9ba53f8f86beb54db579b405eafc5b46697ea9168cd1",
+        "mode": "0600",
+        "mtime_ns": 1789461354057334577,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/runtime-mapping.json",
+        "bytes": 24927,
+        "sha256": "1f64513fe488611eccb4c6315c8d10991031476a232f5000aadbb82f2cbca053",
+        "mode": "0600",
+        "mtime_ns": 1789461030696221128,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/route-auth-evidence.json",
+        "bytes": 5228,
+        "sha256": "1b155bfed5e9044058e4af35182bb55846a9a17cc017e50249925213cc22470b",
+        "mode": "0600",
+        "mtime_ns": 1789458608661590833,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/final-runtime-sample.json",
+        "bytes": 300,
+        "sha256": "a8bb35c86543872df0087338fc52e016291716422969b845de68c68b5bffdced",
+        "mode": "0600",
+        "mtime_ns": 1789458839809745663,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/installation-summary.json",
+        "bytes": 10005,
+        "sha256": "290f9a1e61e1f6d92f904aa551a786ec14ed4848c8b6c2d1f0dda098ef061333",
+        "mode": "0600",
+        "mtime_ns": 1789458487087318895,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/external-dependency-paths.private.json",
+        "bytes": 11743,
+        "sha256": "b929317b67ca90a97fceafd086bfc0eecec8950b4678b09bce146dd16bd9e64f",
+        "mode": "0600",
+        "mtime_ns": 1789458487587026493,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/config-path-fields.private.json",
+        "bytes": 1040,
+        "sha256": "78e0a9a85db0af1bdb620b83fea2b9b09a1df2bcaa2bea3a8183f5915a00ac81",
+        "mode": "0600",
+        "mtime_ns": 1789458967618338137,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/dependency-evidence.json",
+        "bytes": 10721,
+        "sha256": "02720fe323dde7f77c8a6fa1af7868aca38fb15fa79177a216ce571b8204df55",
+        "mode": "0600",
+        "mtime_ns": 1789458740585763841,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/unit-path-evidence.json",
+        "bytes": 1103,
+        "sha256": "ba2490eaf8f0df320dfac3e5a2465fdd3b50323c1c7c8d413ee21e0bd6235e66",
+        "mode": "0600",
+        "mtime_ns": 1789459045827638530,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/mcp-cache-evidence.json",
+        "bytes": 158,
+        "sha256": "28261872960ff9867e2bb900b834f2c469e87bd3ece12a84110f2bb4051d38ec",
+        "mode": "0600",
+        "mtime_ns": 1789459047853268813,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/entrypoints-receipt.json",
+        "bytes": 9982,
+        "sha256": "fa7df297a3f8e0d8f00b2ecddee4d77e1f49499a54562d7a595c344b692240d6",
+        "mode": "0600",
+        "mtime_ns": 1789459020164966678,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/installation-entrypoints.private.tar",
+        "bytes": 30720,
+        "sha256": "3f98f3c317843f9b25cdab115739189194c3d220c0590c88940319c04fdd8bfe",
+        "mode": "0600",
+        "mtime_ns": 1789459018812653751,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/workspace-dependency-index.private.json",
+        "bytes": 3237,
+        "sha256": "9d1763c1c256eb2a018286156036a4530d0111eacb0e65dee1cb3e8e13761e4e",
+        "mode": "0600",
+        "mtime_ns": 1789459189602175628,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/workspace-context-receipt.json",
+        "bytes": 507,
+        "sha256": "89e877d457391c4fd998bc1847d0bcf3f104364cb430d6dc436e05a260d56658",
+        "mode": "0600",
+        "mtime_ns": 1789459213134391918,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/shared-workspace-context.private.tar.gz",
+        "bytes": 27992,
+        "sha256": "fb80ab5e1d72e1b5e2e588bc5340647b93b95101b646a6a638d55a4e0cf1d1f7",
+        "mode": "0600",
+        "mtime_ns": 1789459213126544262,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/firecrawl-cache-receipt.json",
+        "bytes": 710,
+        "sha256": "e30c48db7fc4faee0d6069c65dfaa96c204c9d7bfe8201b6abee65344c1c7b04",
+        "mode": "0600",
+        "mtime_ns": 1789459115924560029,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/firecrawl-cache.private.tar.gz",
+        "bytes": 14377492,
+        "sha256": "475d9ce78e4a17d20a7ddfd0ece6b964717f43fc789681a6d3a7fa5d303dd6ef",
+        "mode": "0600",
+        "mtime_ns": 1789459114264599967,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/legacy-python-receipt.json",
+        "bytes": 745,
+        "sha256": "ba17bbc4ab8b72f5d2e83e38c03085e343811fef7eaef70de5230513653bb037",
+        "mode": "0600",
+        "mtime_ns": 1789459279323754038,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/legacy-python-runtime.private.tar.gz",
+        "bytes": 37033718,
+        "sha256": "38171cc317d1b6162f612fe7227f17e1a738717f977f2c0bf73e962aff03791d",
+        "mode": "0600",
+        "mtime_ns": 1789459276406508607,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/honcho-image-boundary.json",
+        "bytes": 4247,
+        "sha256": "df73c89a2f539086dcf4b072747300d87a71b3bb5e3ae83e14fafd0143300002",
+        "mode": "0600",
+        "mtime_ns": 1789458489089248634,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/honcho-image-reviewed.json",
+        "bytes": 4234,
+        "sha256": "3b4152c2e233491a8f16ce60e45c4637f25183b725d16f6c15d047efc5ea8d73",
+        "mode": "0600",
+        "mtime_ns": 1789458647953695179,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/honcho-images.quarantine.tar",
+        "bytes": 569398784,
+        "sha256": "18826d4a52c6bf09bd50081a2068f3a66d15c3ef48e6d7aa0ee9441700a24431",
+        "mode": "0600",
+        "mtime_ns": 1789458572731905104,
+        "hash_basis": "Producer full SHA256 read plus independent complete archive/member structural verification; target full hash mandatory",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/honcho-history-receipt.json",
+        "bytes": 370,
+        "sha256": "3c126554db79167d34d1d6283ca54915dabd0db8aa9ad73e70c8377d045de342",
+        "mode": "0600",
+        "mtime_ns": 1789458712304403188,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/honcho-history.bundle",
+        "bytes": 23320902,
+        "sha256": "a4082f21e4d52775ed887763fed704152868cc9c85fdce562a8861df206b17d3",
+        "mode": "0600",
+        "mtime_ns": 1789458679098845164,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/app-config-continuity.json",
+        "bytes": 310,
+        "sha256": "fe3c94b3e6d12b8ef9677c6d688733a19514275d5b5a4c7de7d6b58eb5e47ee3",
+        "mode": "0600",
+        "mtime_ns": 1789459393277498029,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/snapshot-verification.json",
+        "bytes": 1604,
+        "sha256": "3658b6a81e7edbb32131e4d784c7b9d41bc5a1a5f9733dcdef5b72f79e8309e7",
+        "mode": "0600",
+        "mtime_ns": 1789461295073113469,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/snapshot-receipt.private.json",
+        "bytes": 61093,
+        "sha256": "244fbd69b156719d11dee8aa26c10732098bdbfa50c4c1959a8d97edadf2b3f8",
+        "mode": "0600",
+        "mtime_ns": 1789460570979777252,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/snapshot-verified-index.private.jsonl",
+        "bytes": 66099284,
+        "sha256": "2abe129361832880c004ba2e18a8ccb2ef369623f184b47fbe63d8b0c3cfd152",
+        "mode": "0600",
+        "mtime_ns": 1789460909942585642,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/hermes-installation-online.private.tar.gz",
+        "bytes": 8394667085,
+        "sha256": "b4c9ab44fb1d834e24dc8340e3d2c72f55ba8c901c29578c067e1844918de4c7",
+        "mode": "0600",
+        "mtime_ns": 1789460356676898385,
+        "hash_basis": "Producer full SHA256 read plus independent complete archive/member structural verification; target full hash mandatory",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/manager-auth-provenance.json",
+        "bytes": 306,
+        "sha256": "a580be0775263ebf2ff212d269239482d57c9791d83b784f29e93f25c793214b",
+        "mode": "0600",
+        "mtime_ns": 1789460415655527955,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/historical-media-archive-search.private.json",
+        "bytes": 1391,
+        "sha256": "610c4c084203561e137caf449bac55857788551025d0596179899929101767bc",
+        "mode": "0600",
+        "mtime_ns": 1789460696798109285,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "private-preservation"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/snapshot-scope-summary.json",
+        "bytes": 363,
+        "sha256": "483ba437313d49bf22d85ac81358e9cb0342ca6108e5b24b856c6ddeb915b4b7",
+        "mode": "0600",
+        "mtime_ns": 1789461023833999369,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/archive-member-verification.json",
+        "bytes": 1386,
+        "sha256": "59f7900a00e138c4eeef5e4445d9b14c7b91c7edf49d9617792a09e3211c80ac",
+        "mode": "0600",
+        "mtime_ns": 1789461130830509313,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      },
+      {
+        "path": "/home/node/aries-migration-t_0cf9fdf0/relocation-t_6188ad57-20260915T074208Z-3b264416/handoff-runtime-sample.json",
+        "bytes": 1327,
+        "sha256": "58f9bb32fdadbca3185ef5eeb4331a11e0529a6c95c1816c438563f9f6a69b08",
+        "mode": "0600",
+        "mtime_ns": 1789461219672410551,
+        "hash_basis": "Fresh full SHA256 read at manifest assembly",
+        "classification": "sanitized-evidence"
+      }
+    ],
+    "component_count": 34,
+    "component_bytes": 9105127124,
+    "snapshot_verification": {
+      "verified_at": "2026-09-15T08:32:10.283193+00:00",
+      "archive_sha256": "b4c9ab44fb1d834e24dc8340e3d2c72f55ba8c901c29578c067e1844918de4c7",
+      "archive_bytes": 8394667085,
+      "index_entries": 248467,
+      "types": {
+        "regular": 218092,
+        "hardlink": 220,
+        "symlink": 1188,
+        "directory": 28967
+      },
+      "payload_bytes_read": 12225054490,
+      "logical_regular_bytes": 12260562706,
+      "all_member_hashes_match": true,
+      "all_index_members_match": true,
+      "hardlink_hashes_resolved": true,
+      "sqlite_count": 151,
+      "all_sqlite_integrity_pass": true,
+      "source_changed_files": 0,
+      "source_read_errors": 0,
+      "omissions": 68,
+      "runtime_revision_stable": true,
+      "revision_before": "3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b",
+      "revision_after": "3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b",
+      "cross_store_consistent": false,
+      "final_delta_required": true,
+      "archive_verification_basis": "verify_snapshot.py completed complete archive/index member SHA256 assertions and wrote canonical verified index before its subsequent restored-Git fsck timed out at120s. This run resumes Git only; it does not repeat or fabricate archive reads.",
+      "verifier_script_sha256": "2e5828d5372b53ba9ead20fd9396dff962482ff789b72a505b1427a23a63a7ca",
+      "verified_index_sha256": "2abe129361832880c004ba2e18a8ccb2ef369623f184b47fbe63d8b0c3cfd152",
+      "initial_git_fsck": "timed out120s; no success claimed",
+      "restored_hermes_git_fsck_rc": 0,
+      "restored_hermes_git_fsck_diagnostic_lines": 36,
+      "restored_hermes_git_head": "3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b",
+      "git_finished_at": "2026-09-15T08:34:55.072692+00:00"
+    },
+    "cross_store_consistent": false,
+    "final_delta_required": true,
+    "source_production_changes": [],
+    "target_activation_authorized": false,
+    "full_migration_certified": false,
+    "source_phase": "preliminary source preservation and baseline evidence, canonical review still required",
+    "remaining_gates": [
+      "Canonical reviewer interpretation of non-serving default/research baseline and effective target mappings",
+      "Target full hashes, aggregate expanded capacity, inactive restore, runtime/native/PATH/symlink parity",
+      "Historical Chronos owner-principal read capability and documented lost-media recovery limitation",
+      "Single-active unrelated-consumer handoff, writer/deploy/updater freeze, queue reconciliation and final cross-store delta/cutover"
+    ],
+    "original_backups": "Retained untouched; referenced previous assembly and Honcho manifests in scope matrix",
+    "transfer_rule": "Strict pinned SSH pull of explicit components only. Do not recursively copy source or staging; no source/target HOME overwrite; target inert0700 root. No jobs, plugins, units, integrations or images activated."
+  },
+  "checks": [
+    {
+      "name": "SCOPE-MATRIX-v2.md",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "runtime-mapping.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "route-auth-evidence.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "final-runtime-sample.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "installation-summary.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "external-dependency-paths.private.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "config-path-fields.private.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "dependency-evidence.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "unit-path-evidence.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "mcp-cache-evidence.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "entrypoints-receipt.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "installation-entrypoints.private.tar",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "workspace-dependency-index.private.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "workspace-context-receipt.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "shared-workspace-context.private.tar.gz",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "firecrawl-cache-receipt.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "firecrawl-cache.private.tar.gz",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "legacy-python-receipt.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "legacy-python-runtime.private.tar.gz",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "honcho-image-boundary.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "honcho-image-reviewed.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "honcho-images.quarantine.tar",
+      "size_mode_pass": true,
+      "fresh_hash": false
+    },
+    {
+      "name": "honcho-history-receipt.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "honcho-history.bundle",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "app-config-continuity.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "snapshot-verification.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "snapshot-receipt.private.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "snapshot-verified-index.private.jsonl",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "hermes-installation-online.private.tar.gz",
+      "size_mode_pass": true,
+      "fresh_hash": false
+    },
+    {
+      "name": "manager-auth-provenance.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "historical-media-archive-search.private.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "snapshot-scope-summary.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "archive-member-verification.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    },
+    {
+      "name": "handoff-runtime-sample.json",
+      "size_mode_pass": true,
+      "fresh_hash": true
+    }
+  ],
+  "evidence": {
+    "SCOPE-MATRIX-v2.md": "# Aries source follow-up: resumed Docker inspection and relocation boundary\n\nTask t_6188ad57; authoritative host node@n8n-vm. Baseline verified user node, hostname n8n-vm; initial cwd /home/node/openclaw-n8n-stack, then /home/node and task-authorized restricted migration directory. Board workspace is Windows-only and remote workspace variable is unset. Only additive files below this new protected migration directory were created. No production edits, restarts, freezes, credential use/refresh, sends, database exports, account changes, or cutover were performed.\n\n## Superseding authority\n\nThe relayed owner ruling requires like-for-like preservation of the existing Hermes installation, including shared profiles, credentials, state, memory, skills/plugins, jobs and service connections. Earlier Aries-name memory filtering and category-consent exclusions are superseded. Source and target remain single-active-instance gated; preserving a capability does not activate it. No shared Honcho database or PostgreSQL cluster is authorized here. This is verified preliminary source preservation, not a final simultaneous installation snapshot or migration certification.\n\n## Verified capture result\n\nThe finalized HOME archive is8394667085 bytes, SHA256b4c9ab44fb1d834e24dc8340e3d2c72f55ba8c901c29578c067e1844918de4c7. All248467 archive/index entries were independently matched:218092 regular payloads,220 hardlinks,1188 symlinks and28967 directories. All22 profiles are present. Payload bytes read were12225054490; logical regular bytes including hardlinks are12260562706. All151 SQLite backup-API integrity checks passed, with zero source-read errors and zero changed-during-read files. Only68 raw WAL/SHM sidecars were replaced by coherent parent-database backups; no other omission category occurred.\n\nCaptured Hermes revision stayed3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b before/after capture. Independently restored archived Git metadata passed full fsck and matches that HEAD. The first fsck exceeded120seconds; a Git-only resumed check completed successfully with exit0 at2026-09-15T08:34:55.072692+00:00, reporting36 diagnostic lines. The full archive/member validation was not rerun or fabricated on resumption. Exact producer, verified-index and resumed-check lineage is recorded in the included receipts. Capture data window07:55:20\u201308:19:16Z; archive hashing and subsequent verification finished later.\n\nLatest08:33:34Z runtime sample still shows app unhealthy, StartedAt08:26:01.389542166Z, same app image; gateway units inactive/MainPID0, no configured-port listener, actual deploy runner active. Honcho image IDs and StartedAt values remain unchanged. Source functionality/stability is not certified by successful preservation.\n\n## Resolved/unresolved scope matrix\n\n| Scope | Verified result | Remaining gate |\n|---|---|---|\n| Docker responsiveness | Docker29.2.1 responds; container/image/host listener inspections now succeed. | Former Docker timeout is cleared, not a current reason to block. |\n| App source/image | Source clean e5ee8b8e68a7ca89cbd43a50480983df41eeb101; live image be5e6d48f210286e3220f6abe1835bd65b2f8607dc3debc3ad68e63f7c030b25 matches historical preserved app image ID. | App is not stable: 07:42 sample started07:40:36.924536825Z/starting; subsequent unhealthy; 07:50 sample started07:48:12.071579409Z/starting. Active autoheal observed; RestartCount0 does NOT disprove externally requested restart. No repair. |\n| Runner | actions.runner.DeliciousHouse-aries-app.aries-deploy-n8n-vm.service active/running. | Not frozen. Final approved coordination must include runner, writers, autoheal and updater. |\n| Actual default route | Container HERMES_GATEWAY_URL=http://host.docker.internal:8642; /etc/hosts maps host.docker.internal to172.17.0.1. No gateway TCP listener and no matching iptables NAT rule observed. | No current serving PID exists for this configured route in sampled host state. Do not infer a working receiver from config files. No authenticated requests made. |\n| Actual research routes | Research marketing gateway uses same8642 endpoint; HERMES_RESEARCH_WEBHOOK_URL uses same host/port at /v1/runs. Dispatch code sends jobId/taskSpec/tenantPseudonym/memoryContext/callbackUrl/callbackToken with default HERMES_API_SERVER_KEY, without input. No proxy/transform was observed on the configured host port. | Reviewer synthetic missing-input result remains source-code admission evidence, not a live request. Preserve baseline behavior; do not repair payload/route. |\n| Gateway units/HOME/auth | All four named gateway units inactive/dead MainPID0. Root gateway unit HOME=/home/node/.hermes, working-directory override /home/node/clearmud-bootcamp. Root file config has no API-server key candidate; aries-default extra.key exists and equals live app container key in memory-only comparison. Installed adapter extra.key precedes scoped API_SERVER_KEY. Dedicated research config binds127.0.0.1:8651, not app's8642. Strategist8654/content8655. | File equality is not live auth proof. No permission to restart/repair gateways. Root versus aries-default discrepancy remains preserved. Canonical reviewer owns disposition, no category questionnaires. |\n| Hermes revision/dependencies | Started with clean4d55ca91656ac5f83e1506679b7f81e0238e5e16; active PID1173997 update --yes changed source to clean3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b. Updater exited naturally by07:53:59Z; capture started only after zero update processes were found. Metadata sample lists138 installed distributions. | Initial updater hold cleared naturally. Use snapshot-receipt.private.json and snapshot-verification.json pre/post revision and updater checks, rather than initial revision alone. No actor was stopped by this task. Target must match the captured revision and dependencies, not the earlier reviewer version by assumption. |\n| Whole installation boundary | Initial metadata sample:218294 regular files/11805017693 bytes,1188 symlinks, zero external symlink targets/errors. This count is NOT the finalized snapshot count. Full protected online capture includes ALL22 profiles, shared stores, imports, backups, skills/plugins, runtime and Git without tenant filtering; final exact counts/hashes/SQLite receipts are in snapshot-verification.json and private verified index. | Online per-file/per-database preservation is not a simultaneous global snapshot. Any changed files and raw WAL/SHM replacement omissions are explicit in the receipt. Final coordinated cross-store delta and target parity remain mandatory; no activation. |\n| Out-of-home closure/unrelated consumers | Exact11 systemd/wrapper entrypoints preserved. Actual configured clearmud instruction/context dependency preserved as27 files/60143 bytes. Legacy Python used by running shared proxy processes preserved separately. Existing configured Firecrawl MCP cache3.23.6 preserved. Path-field/metadata inventories record source provenance. | Shared dashboard, cron-watch and gbrain consumers remain on source, untouched. Target cannot activate duplicates. Missing .hermeslink/hermes-skills reference retained; named gateway unit PATH does not resolve npx, a preserved baseline limitation, not silently repaired. OpenClaw is an allowed command, not a demonstrated live gateway dependency; its separate service/install was not copied automatically. Target native library/command/PATH parity and unrelated-consumer handoff remain reviewer/Dora gates. |\n| Nested Honcho source | Prior exact837-file committed source/archive and shallow nested Git backup remain untouched. Live deployment actually comes from /home/node/honcho, not nested services/honcho; same detached ad7c1b3040382d5f1e866d8dfa9d8a9978488768. Tracked deployment tree clean; only untracked compose backup/PG Dockerfile paths observed. | Prior nested source artifact remains valid. Keep deployment-root distinction. |\n| Honcho history | /home/node/honcho is NON-SHALLOW. New honcho-history.bundle preserves195 local refs and detached required HEAD; required HEAD has510 ancestral commits. Bundle verify passes. Local restored bare copy, explicit all-ref import and git fsck --full pass with zero fsck diagnostics. | Supersedes earlier local-history-unavailable limitation. No network fetch or source Git mutation. Use recorded detached HEAD, not newer main ref, for baseline restoration. Sensitive filename history scan found no .env/config.toml/auth.json/pem/key paths; not an exhaustive secret audit. |\n| Honcho images | Both live API/deriver images captured together into569398784-byte archive; same16 rootfs layer identifiers, distinct image IDs recorded. Entire nested layer content structurally read. Neither final /app/config.toml nor /app/.env exists; no sensitive image-env names or history assignment candidates. Historical-layer filename scan found only certifi/cacert.pem twice, confirmed public certificate bundles with no private-key marker. | New archive approved for PRIVATE PRESERVATION, not execution. No container runtime environment, volumes, Redis or shared DB copied. Image audit is bounded and not a general secret detector. Target must verify SHA256, enforce egress denial and keep deriver inactive. |\n| Honcho mounted entrypoint | Live bind source /home/node/honcho/docker/entrypoint.sh SHA256c022f0cdeeffddda3674ad628566dd9e8d6c48bfb9b7a44ba07fdddb572587b0 equals already-preserved nested tracked entrypoint. | Entrypoint runs scripts/provision_db.py before server: never launch against shared/source DB; no implicit migration authority. Runtime shared env/config remains uncopied; prior minimal compatibility fields only, target connection reconstruction still required. |\n| Historical media | Prior bounded evidence retained: documented loss of six files referenced by nine pending posts; runbook says regeneration required, no recovery copy established. Known historical bucket authenticated404 is prior evidence, not proof no historic bytes. Prior95-file local media inventory and original89-file media capture reused. | No newly recovered historical bytes. Exact complete lost-byte sizes/object list remain unproved. No unrelated cloud search or regeneration. Final media delta still needed. |\n| Historical Chronos | Existing client refresh behavior and prior lack of usable historical-owner principal remain the documented boundary; client not invoked. | Existing nonexpired historical-owner Nous Portal read capability for GET https://portal.nousresearch.com/api/agent-cron/list, or brokered successful schema-complete read result with principal provenance, required. No login/refresh/activation. No empty-registry claim. |\n\n## Exact additive transfer and verification\n\nUse sanitized-manifest.json component.path allowlist only. All components are0600 under0700 directories. The image filename retains .quarantine for provenance, but honcho-image-reviewed.json records the bounded preservation review; it does not authorize runtime activation. The installation-index.private.json and external-dependency-paths.private.json are private path metadata, not shared-board attachments. Scratch scripts and verification repositories are excluded from transfer.\n\nThe HOME archive retains original file modes and symlink targets as preservation evidence; outer payloads remain0600. Never extract it directly into target /home/node/.hermes or follow absolute preserved symlinks into another installation. Use a new0700 inert root and the canonical reviewed source-to-target path map; retain originals and explicitly map/neutralize internal absolute links before any execution. The verified index resolves tar hardlink hashes to their original payloads. Historical backup archives, cron definitions, installed hooks/plugins and executable files are preserved data, not instructions to activate. Installation-entrypoint units must not be installed/enabled on transfer.\n\nApp config continuity was checked privately against the previous protected package: current source .env bytes and the full live container environment dictionary match exactly, with zero changed field names. Existing app config payloads are reused, not exported redundantly. This equality proof does not authenticate a gateway or authorize target integration use.\n\nThe user systemd manager environment also has no API_SERVER_KEY. That read was reduced in memory to presence/equality booleans and HOME paths; no environment secret values were output. This narrows desired startup provenance but cannot substitute for an absent serving process or an authenticated receiver test.\n\nHistorical-media search was extended only within the authorized local installation: the runbook's one exact media basename had zero matches in the full HOME inventory and five installation-backup ZIP central directories, with zero ZIP-read errors. This adds bounded local-backup evidence, not proof that every lost historical byte is unrecoverable: the runbook still does not enumerate the complete six-file object/byte list, and nested backup payloads were not exhaustively unpacked for media recovery. No new recovery source was demonstrated.\n\nReuse earlier manifests and receipts rather than recopying/re-exporting databases: assembly-t_6081da7c-20260915T052604Z-8aebc3c2/sanitized-manifest.json and honcho-t_6188ad57-20260915T060503Z-d240894b/sanitized-manifest.json under the same migration root. Target must verify all large hashes after strict pinned-SSH pull. No original backup was overwritten and no chattr immutability is claimed.\n\nDora's existing isolated subset phase proceeds independently. Source capture/lineage and bounded dependency evidence are now available for canonical review, not blanket functional acceptance. Canonical reviewer disposition, target native/command/PATH/symlink/runtime parity, shared-consumer handoff, aggregate capacity, private flows, rollback, historical Chronos assurance, queue reconciliation and approved final DB/Honcho/SQLite/files/media/config/Git/image delta remain open. No unresolved functionality is permanently excluded by this source handoff. No full migration, stable production, working research, or cutover is certified.\n",
+    "route-auth-evidence.json": "{\n  \"time\": \"2026-09-15T07:50:07.477160+00:00\",\n  \"auth_use\": false,\n  \"homes\": [\n    {\n      \"home\": \"/home/node/.hermes\",\n      \"api_enabled\": null,\n      \"port\": null,\n      \"host\": null,\n      \"config_extra_key_present\": false,\n      \"file_env_key_present\": false,\n      \"file_candidate_source\": null,\n      \"app_key_equals_candidate\": false,\n      \"comparison_limit\": \"file candidate only; no active gateway PID, no live auth proof\"\n    },\n    {\n      \"home\": \"/home/node/.hermes/profiles/aries-default\",\n      \"api_enabled\": true,\n      \"port\": 8642,\n      \"host\": \"0.0.0.0\",\n      \"config_extra_key_present\": true,\n      \"file_env_key_present\": true,\n      \"file_candidate_source\": \"config.yaml:platforms.api_server.extra.key\",\n      \"app_key_equals_candidate\": true,\n      \"comparison_limit\": \"file candidate only; no active gateway PID, no live auth proof\"\n    },\n    {\n      \"home\": \"/home/node/.hermes/profiles/aries-research\",\n      \"api_enabled\": true,\n      \"port\": 8651,\n      \"host\": \"127.0.0.1\",\n      \"config_extra_key_present\": true,\n      \"file_env_key_present\": true,\n      \"file_candidate_source\": \"config.yaml:platforms.api_server.extra.key\",\n      \"app_key_equals_candidate\": false,\n      \"comparison_limit\": \"file candidate only; no active gateway PID, no live auth proof\"\n    },\n    {\n      \"home\": \"/home/node/.hermes/profiles/aries-strategist\",\n      \"api_enabled\": true,\n      \"port\": 8654,\n      \"host\": \"0.0.0.0\",\n      \"config_extra_key_present\": true,\n      \"file_env_key_present\": true,\n      \"file_candidate_source\": \"config.yaml:platforms.api_server.extra.key\",\n      \"app_key_equals_candidate\": false,\n      \"comparison_limit\": \"file candidate only; no active gateway PID, no live auth proof\"\n    },\n    {\n      \"home\": \"/home/node/.hermes/profiles/aries-content-generator\",\n      \"api_enabled\": true,\n      \"port\": 8655,\n      \"host\": \"0.0.0.0\",\n      \"config_extra_key_present\": true,\n      \"file_env_key_present\": true,\n      \"file_candidate_source\": \"config.yaml:platforms.api_server.extra.key\",\n      \"app_key_equals_candidate\": false,\n      \"comparison_limit\": \"file candidate only; no active gateway PID, no live auth proof\"\n    }\n  ],\n  \"source_revision\": \"3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b\",\n  \"runtime_git_dirty\": false,\n  \"samples\": {\n    \"app_started\": \"2026-09-15T07:48:12.071579409Z\",\n    \"app_health\": \"starting\"\n  },\n  \"ss_rc\": 0,\n  \"gateway_listeners\": [],\n  \"nat_rc\": 0,\n  \"gateway_nat_rules\": [],\n  \"hosts_read_rc\": 0,\n  \"host_alias_lines\": [\n    \"172.17.0.1\\thost.docker.internal\"\n  ],\n  \"unit_mapping\": [\n    {\n      \"unit\": \"hermes-gateway.service\",\n      \"mapping\": [\n        \"ExecStart=/home/node/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main gateway run\",\n        \"WorkingDirectory=/home/node/.hermes\",\n        \"VIRTUAL_ENV=/home/node/.hermes/hermes-agent/venv\",\n        \"HERMES_HOME=/home/node/.hermes\",\n        \"WorkingDirectory=/home/node/clearmud-bootcamp\"\n      ],\n      \"state\": \"MainPID=0\\nActiveState=inactive\\nSubState=dead\\n\"\n    },\n    {\n      \"unit\": \"hermes-gateway-aries-research.service\",\n      \"mapping\": [\n        \"ExecStart=/home/node/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main --profile aries-research gateway run\",\n        \"WorkingDirectory=/home/node/.hermes/profiles/aries-research\",\n        \"VIRTUAL_ENV=/home/node/.hermes/hermes-agent/venv\",\n        \"HERMES_HOME=/home/node/.hermes/profiles/aries-research\"\n      ],\n      \"state\": \"MainPID=0\\nActiveState=inactive\\nSubState=dead\\n\"\n    },\n    {\n      \"unit\": \"hermes-gateway-aries-strategist.service\",\n      \"mapping\": [\n        \"ExecStart=/home/node/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main --profile aries-strategist gateway run\",\n        \"WorkingDirectory=/home/node/.hermes/profiles/aries-strategist\",\n        \"VIRTUAL_ENV=/home/node/.hermes/hermes-agent/venv\",\n        \"HERMES_HOME=/home/node/.hermes/profiles/aries-strategist\"\n      ],\n      \"state\": \"MainPID=0\\nActiveState=inactive\\nSubState=dead\\n\"\n    },\n    {\n      \"unit\": \"hermes-gateway-aries-content-generator.service\",\n      \"mapping\": [\n        \"ExecStart=/home/node/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main --profile aries-content-generator gateway run\",\n        \"WorkingDirectory=/home/node/.hermes/profiles/aries-content-generator\",\n        \"VIRTUAL_ENV=/home/node/.hermes/hermes-agent/venv\",\n        \"HERMES_HOME=/home/node/.hermes/profiles/aries-content-generator\"\n      ],\n      \"state\": \"MainPID=0\\nActiveState=inactive\\nSubState=dead\\n\"\n    }\n  ],\n  \"update_actor\": {\n    \"pid\": 1173997,\n    \"exists\": true,\n    \"partial_backups\": []\n  },\n  \"source_files\": [\n    {\n      \"path\": \"/home/node/.hermes/hermes-agent/gateway/platforms/api_server.py\",\n      \"bytes\": 219986,\n      \"sha256\": \"7ec405dc2a59789582ad9f61a189a41079e621f14642d3c9dc754e312616a868\"\n    },\n    {\n      \"path\": \"/home/node/.hermes/hermes-agent/gateway/platforms/api_server_runs.py\",\n      \"bytes\": 48941,\n      \"sha256\": \"dd7303663f8062ece1a08b03b2010a7737500162c9b1e7a7f5e802b4b80504c0\"\n    },\n    {\n      \"path\": \"/home/node/aries-app/backend/memory/hermes-dispatch.ts\",\n      \"bytes\": 2377,\n      \"sha256\": \"b71c61fef99bb858c755b6a10f57a1c3a529fea29f6b830b49da1fe6758fc688\"\n    }\n  ]\n}\n",
+    "unit-path-evidence.json": "[\n  {\n    \"unit\": \"hermes-gateway.service\",\n    \"path\": \"/home/node/.hermes/hermes-agent/venv/bin:/home/node/.hermes/hermes-agent/node_modules/.bin:/usr/bin:/home/node/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n    \"npx\": null\n  },\n  {\n    \"unit\": \"hermes-gateway-aries-research.service\",\n    \"path\": \"/home/node/.hermes/hermes-agent/venv/bin:/home/node/.hermes/hermes-agent/node_modules/.bin:/usr/bin:/home/node/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n    \"npx\": null\n  },\n  {\n    \"unit\": \"hermes-gateway-aries-strategist.service\",\n    \"path\": \"/home/node/.hermes/hermes-agent/venv/bin:/home/node/.hermes/hermes-agent/node_modules/.bin:/usr/bin:/home/node/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n    \"npx\": null\n  },\n  {\n    \"unit\": \"hermes-gateway-aries-content-generator.service\",\n    \"path\": \"/home/node/.hermes/hermes-agent/venv/bin:/home/node/.hermes/hermes-agent/node_modules/.bin:/usr/bin:/home/node/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n    \"npx\": null\n  }\n]\n",
+    "snapshot-verification.json": "{\n  \"verified_at\": \"2026-09-15T08:32:10.283193+00:00\",\n  \"archive_sha256\": \"b4c9ab44fb1d834e24dc8340e3d2c72f55ba8c901c29578c067e1844918de4c7\",\n  \"archive_bytes\": 8394667085,\n  \"index_entries\": 248467,\n  \"types\": {\n    \"regular\": 218092,\n    \"hardlink\": 220,\n    \"symlink\": 1188,\n    \"directory\": 28967\n  },\n  \"payload_bytes_read\": 12225054490,\n  \"logical_regular_bytes\": 12260562706,\n  \"all_member_hashes_match\": true,\n  \"all_index_members_match\": true,\n  \"hardlink_hashes_resolved\": true,\n  \"sqlite_count\": 151,\n  \"all_sqlite_integrity_pass\": true,\n  \"source_changed_files\": 0,\n  \"source_read_errors\": 0,\n  \"omissions\": 68,\n  \"runtime_revision_stable\": true,\n  \"revision_before\": \"3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b\",\n  \"revision_after\": \"3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b\",\n  \"cross_store_consistent\": false,\n  \"final_delta_required\": true,\n  \"archive_verification_basis\": \"verify_snapshot.py completed complete archive/index member SHA256 assertions and wrote canonical verified index before its subsequent restored-Git fsck timed out at120s. This run resumes Git only; it does not repeat or fabricate archive reads.\",\n  \"verifier_script_sha256\": \"2e5828d5372b53ba9ead20fd9396dff962482ff789b72a505b1427a23a63a7ca\",\n  \"verified_index_sha256\": \"2abe129361832880c004ba2e18a8ccb2ef369623f184b47fbe63d8b0c3cfd152\",\n  \"initial_git_fsck\": \"timed out120s; no success claimed\",\n  \"restored_hermes_git_fsck_rc\": 0,\n  \"restored_hermes_git_fsck_diagnostic_lines\": 36,\n  \"restored_hermes_git_head\": \"3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b\",\n  \"git_finished_at\": \"2026-09-15T08:34:55.072692+00:00\"\n}\n",
+    "manager-auth-provenance.json": "{\n  \"time\": \"2026-09-15T08:20:15.655187+00:00\",\n  \"manager_api_server_key_present\": false,\n  \"manager_key_equals_app_key\": false,\n  \"manager_home_paths\": {\n    \"HOME\": \"/home/node\"\n  },\n  \"limit\": \"Systemd manager environment only; no active gateway process. No secret values output or credential used.\"\n}\n",
+    "snapshot-scope-summary.json": "{\n  \"time\": \"2026-09-15T08:30:23.833601+00:00\",\n  \"profile_count\": 22,\n  \"types\": {\n    \"file\": 217941,\n    \"directory\": 28967,\n    \"sqlite-backup\": 151,\n    \"hardlink\": 220,\n    \"symlink\": 1188\n  },\n  \"entries\": 248467,\n  \"logical_bytes\": 12260562706,\n  \"omission_reasons\": {\n    \"WAL/SHM replaced by parent SQLite backup API snapshot; not copied raw\": 68\n  }\n}\n",
+    "handoff-runtime-sample.json": "{\n  \"time\": \"2026-09-15T08:33:34.348722+00:00\",\n  \"containers\": [\n    {\n      \"name\": \"aries-app-aries-app-1\",\n      \"image\": \"sha256:be5e6d48f210286e3220f6abe1835bd65b2f8607dc3debc3ad68e63f7c030b25\",\n      \"started\": \"2026-09-15T08:26:01.389542166Z\",\n      \"health\": \"unhealthy\",\n      \"state\": \"running\"\n    },\n    {\n      \"name\": \"honcho-api-1\",\n      \"image\": \"sha256:adfebbdd9b1580d4b167de22d86700c4a6d9d7def339b63087955ce459ebb55d\",\n      \"started\": \"2026-07-23T01:33:35.688371085Z\",\n      \"health\": null,\n      \"state\": \"running\"\n    },\n    {\n      \"name\": \"honcho-deriver-1\",\n      \"image\": \"sha256:9f2b256d2454f476c7707c214e41cf9e3298c39efbf886e9eef58b2c83f83e22\",\n      \"started\": \"2026-07-23T01:33:35.690271617Z\",\n      \"health\": null,\n      \"state\": \"running\"\n    }\n  ],\n  \"gateway_units\": \"MainPID=0\\nId=hermes-gateway.service\\nActiveState=inactive\\n\\nMainPID=0\\nId=hermes-gateway-aries-research.service\\nActiveState=inactive\\n\\nMainPID=0\\nId=hermes-gateway-aries-strategist.service\\nActiveState=inactive\\n\\nMainPID=0\\nId=hermes-gateway-aries-content-generator.service\\nActiveState=inactive\\n\",\n  \"runner\": \"Id=actions.runner.DeliciousHouse-aries-app.aries-deploy-n8n-vm.service\\nActiveState=active\\nSubState=running\\n\",\n  \"gateway_listeners\": [],\n  \"hermes_revision\": \"3ba5602b6273f9bb0d2a0d52c77bbe0f50f6227b\"\n}\n"
+  }
+}

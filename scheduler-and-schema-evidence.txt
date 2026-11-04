@@ -1,0 +1,92 @@
+ACTUAL PURE SCHEDULER PREDICATE is_job_runnable 3/3 PASS; no module import or production state writes
+/home/node/.hermes/memory_store.db
+facts [('fact_id', 'INTEGER'), ('content', 'TEXT'), ('category', 'TEXT'), ('tags', 'TEXT'), ('trust_score', 'REAL'), ('retrieval_count', 'INTEGER'), ('helpful_count', 'INTEGER'), ('created_at', 'TIMESTAMP'), ('updated_at', 'TIMESTAMP'), ('hrr_vector', 'BLOB')]
+fact_entities [('fact_id', 'INTEGER'), ('entity_id', 'INTEGER')]
+entities [('entity_id', 'INTEGER'), ('name', 'TEXT'), ('entity_type', 'TEXT'), ('aliases', 'TEXT'), ('created_at', 'TIMESTAMP')]
+memory_banks [('bank_id', 'INTEGER'), ('bank_name', 'TEXT'), ('vector', 'BLOB'), ('dim', 'INTEGER'), ('fact_count', 'INTEGER'), ('updated_at', 'TIMESTAMP')]
+/home/node/.hermes/state.db
+sessions [('id', 'TEXT'), ('source', 'TEXT'), ('user_id', 'TEXT'), ('model', 'TEXT'), ('model_config', 'TEXT'), ('system_prompt', 'TEXT'), ('parent_session_id', 'TEXT'), ('started_at', 'REAL'), ('ended_at', 'REAL'), ('end_reason', 'TEXT'), ('message_count', 'INTEGER'), ('tool_call_count', 'INTEGER'), ('input_tokens', 'INTEGER'), ('output_tokens', 'INTEGER'), ('cache_read_tokens', 'INTEGER'), ('cache_write_tokens', 'INTEGER'), ('reasoning_tokens', 'INTEGER'), ('billing_provider', 'TEXT'), ('billing_base_url', 'TEXT'), ('billing_mode', 'TEXT'), ('estimated_cost_usd', 'REAL'), ('actual_cost_usd', 'REAL'), ('cost_status', 'TEXT'), ('cost_source', 'TEXT'), ('pricing_version', 'TEXT'), ('title', 'TEXT'), ('api_call_count', 'INTEGER'), ('session_key', 'TEXT'), ('chat_id', 'TEXT'), ('chat_type', 'TEXT'), ('thread_id', 'TEXT'), ('display_name', 'TEXT'), ('origin_json', 'TEXT'), ('expiry_finalized', 'INTEGER'), ('cwd', 'TEXT'), ('git_branch', 'TEXT'), ('git_repo_root', 'TEXT'), ('handoff_state', 'TEXT'), ('handoff_platform', 'TEXT'), ('handoff_error', 'TEXT'), ('compression_failure_cooldown_until', 'REAL'), ('compression_failure_error', 'TEXT'), ('rewind_count', 'INTEGER'), ('archived', 'INTEGER'), ('compression_fallback_streak', 'INTEGER'), ('profile_name', 'TEXT'), ('compression_ineffective_count', 'INTEGER'), ('pinned', 'INTEGER'), ('last_activity_at', 'REAL'), ('last_activity_description', 'TEXT'), ('last_activity_provenance', 'TEXT'), ('system_prompt_hash', 'TEXT'), ('last_read_at', 'REAL'), ('title_source', 'TEXT'), ('git_metadata_generation', 'INTEGER'), ('hidden', 'INTEGER'), ('compression_recovery_deadline', 'REAL'), ('tool_names', 'TEXT')]
+messages [('id', 'INTEGER'), ('session_id', 'TEXT'), ('role', 'TEXT'), ('content', 'TEXT'), ('tool_call_id', 'TEXT'), ('tool_calls', 'TEXT'), ('tool_name', 'TEXT'), ('timestamp', 'REAL'), ('token_count', 'INTEGER'), ('finish_reason', 'TEXT'), ('reasoning', 'TEXT'), ('reasoning_details', 'TEXT'), ('codex_reasoning_items', 'TEXT'), ('reasoning_content', 'TEXT'), ('codex_message_items', 'TEXT'), ('platform_message_id', 'TEXT'), ('observed', 'INTEGER'), ('active', 'INTEGER'), ('compacted', 'INTEGER'), ('effect_disposition', 'TEXT'), ('api_content', 'TEXT'), ('display_kind', 'TEXT'), ('display_metadata', 'TEXT'), ('_compressed_summary', 'INTEGER'), ('display_identity', 'BLOB'), ('display_order', 'INTEGER')]
+630:      com.delicioushouse.aries.autoheal: "true"
+631:    networks:
+632:      - docker_stack
+633:
+634:  # Optional production Hermes sidecar. It is dormant unless the
+635:  # `hermes-sidecar` profile is activated, so existing external gateways and
+636:  # the temporary in-image CLI compatibility path keep working during cutover.
+637:  # The release tag is paired with its immutable multi-arch manifest digest.
+638:  aries-hermes:
+639:    image: ${ARIES_HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
+640:    profiles: ["hermes-sidecar"]
+641:    command: ["gateway", "run"]
+642:    environment:
+643:      HERMES_UID: ${HERMES_UID:-1000}
+644:      HERMES_GID: ${HERMES_GID:-1000}
+645:      API_SERVER_ENABLED: "true"
+646:      API_SERVER_HOST: 0.0.0.0
+647:      API_SERVER_PORT: 8642
+648:      API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+649:    volumes:
+650:      - ${ARIES_HERMES_DATA_ROOT:-/home/node/.hermes}:/opt/data
+651:    restart: unless-stopped
+652:    healthcheck:
+653:      test: ["CMD-SHELL", "curl -fsS --max-time 5 http://127.0.0.1:8642/health >/dev/null"]
+654:      interval: 30s
+655:      timeout: 5s
+656:      retries: 5
+657:      start_period: 120s
+658:    networks:
+659:      - docker_stack
+660:
+661:  # Docker's restart policy only reacts to process exits, not an unhealthy
+662:  # healthcheck. This socket-scoped watcher selects only the Aries-specific
+663:  # label, caps each container at three restarts per 15-minute window, and then
+664:  # leaves persistent failure unhealthy and visible to operators. The state
+665:  # volume preserves that budget if the watcher itself restarts.
+gateway/platforms/api_server_run_idempotency.py
+6:import sqlite3
+13:from hermes_cli.sqlite_util import add_column_if_missing
+53:class RunIdempotencyStore:
+68:                from hermes_cli.config import get_hermes_home
+69:                db_path = str(get_hermes_home() / "runs_idempotency.db")
+74:            self._conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+83:            self._conn = sqlite3.connect(":memory:", check_same_thread=False)
+gateway/platforms/api_server.py
+22:import sqlite3
+121:from gateway.platforms import api_server_runs as _api_runs
+125:from gateway.platforms.api_server_run_idempotency import RunIdempotencyStore
+687:                from hermes_cli.config import get_hermes_home
+688:                db_path = str(get_hermes_home() / "response_store.db")
+691:            self._conn = sqlite3.connect(db_path, check_same_thread=False)
+693:            self._conn = sqlite3.connect(":memory:", check_same_thread=False)
+915:            if _api_runs._uses_room_run_auth(self, request)
+1105:        return await getattr(_api_runs, name)(self, request, _api_server=sys.modules[__name__])
+1155:        _api_runs._initialize_run_state(self, store_factory=RunIdempotencyStore)
+1236:        active_api_runs = sum(
+1247:        return active_api_runs, process_depth, active_delegations
+1483:                    from hermes_constants import get_hermes_home
+1484:                    return _profile_runtime_scope(get_hermes_home())
+1567:        routes.extend(_api_runs._http_routes(self))
+1684:        """SessionDB for the active profile home (the runtime scope redirects ``get_hermes_home()``
+1689:            from hermes_constants import get_hermes_home
+1690:            return self._open_and_cache_session_db(get_hermes_home())
+1701:            from hermes_constants import get_hermes_home
+1702:            home = get_hermes_home()
+2207:        active_api_runs, process_depth, active_delegations = self._readiness_work_counts()
+2211:            active_api_runs=active_api_runs, process_completion_queue_depth=process_depth,
+2276:                "runs_idempotency": _api_runs._idempotency_capabilities(self, store_type=RunIdempotencyStore),
+2524:                from hermes_state import get_hermes_home
+2525:                root = Path(get_hermes_home()) / "artifacts" / "browser-control"
+3784:        return _api_runs._set_run_status(self, run_id, status, **fields)
+3787:        return _api_runs._make_run_event_callback(self, run_id, loop, _api_server=sys.modules[__name__])
+3790:        return _api_runs._run_idempotency_scope(self, request, _api_server=sys.modules[__name__])
+3803:        return _api_runs._check_run_auth(self, request, permission=permission, _api_server=sys.modules[__name__])
+3817:        return _api_runs._durable_run_status(self, request, run_id)
+3821:        return await _api_runs._handle_runs(self, request, _api_server=sys.modules[__name__])
+3824:        return _api_runs._request_owns_run(self, request, run_id)
+3827:        _api_runs._release_run_owner_if_forgotten(self, run_id)
+3836:        return await _api_runs._sweep_orphaned_runs(self)
+3839:        return _api_runs._sweep_orphaned_runs_once(self, now)
+3883:            # re-instantiate the adapter (+ sqlite connection) until EMFILE.
+3888:                # the adapter (and its ResponseStore sqlite connection) every retry (#38803: ~501 leaked
+4005:        _api_runs._close_run_state(self)
