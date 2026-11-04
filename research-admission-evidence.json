@@ -1,0 +1,12 @@
+{
+  "source": "/home/node/.hermes/hermes-agent/gateway/platforms/api_server_runs.py",
+  "sha256": "dd7303663f8062ece1a08b03b2010a7737500162c9b1e7a7f5e802b4b80504c0",
+  "synthetic_research_payload": {
+    "message": "Missing 'input' field",
+    "status": 400
+  },
+  "positive_input_control": true,
+  "network_requests": 0,
+  "production_module_imports": 0,
+  "limitation": "Actual admission slice, not complete request handler or live receiver proof."
+}

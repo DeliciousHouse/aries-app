@@ -1,0 +1,9 @@
+{
+  "field_schema_assertions": "PASS",
+  "fields": 270,
+  "unique_fields": 270,
+  "component_checks": 34,
+  "fresh_component_hashes": 32,
+  "functional_certification": false,
+  "activation_authorized": false
+}

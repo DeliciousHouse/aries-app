@@ -1,0 +1,34 @@
+{
+  "field-contract-v2.json": {
+    "sha256": "2b9121dbc590e3b2f9fabf19db7cffa527489a5c0c1e97c4d8220799d1ae0c53",
+    "bytes": 314926
+  },
+  "security-verdict-v2.txt": {
+    "sha256": "87b08e2a00a6c38794958612ebfd0bcc43229d9b2371df9bf73194386d224a92",
+    "bytes": 1464
+  },
+  "relocation-handoff.txt": {
+    "sha256": "a0f149a7be4cd154e88f9b65d140a2174d64ae59945aca2f5fd03b8161130f9c",
+    "bytes": 2446
+  },
+  "relocation-source-evidence.json": {
+    "sha256": "dd3a867c8f076a168f554cc5cd842b4dab429472acf8c0f153c1ef5b17de6ec3",
+    "bytes": 1891
+  },
+  "relocation-auth-evidence.json": {
+    "sha256": "3d0ca616b1415e651d04ab2d1654c1c14467d016401ac2c61d71ec9475862a8d",
+    "bytes": 879
+  },
+  "research-admission-evidence.json": {
+    "sha256": "e2383f80ccb420b060247b6d063c9e4594422a5acfca7cb222d57f927200c48e",
+    "bytes": 465
+  },
+  "validate_contract_v2.py": {
+    "sha256": "81f2a5db28957a013c50c08544911966f2d4e384cd6a8238735ad3c7f56c2687",
+    "bytes": 1489
+  },
+  "contract-validation-v2.json": {
+    "sha256": "4507b0ab3ada0957d583bd10532aaccddf5ae8319e87fb305b1cbc4eed49cfb0",
+    "bytes": 237
+  }
+}
