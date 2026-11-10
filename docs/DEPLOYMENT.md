@@ -106,9 +106,12 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 ## GitHub Actions release flow
 
 `.github/workflows/release.yml` is the existing GitHub-hosted image publisher.
-Manual dispatch publishes `sha-<full SHA>`; version tags retain the self-hosted
-distribution aliases. Neither path deploys. Resolve a candidate's registry digest
-and verify its source revision; never use a mutable tag as rollout identity.
+Every `master` merge and every manual dispatch publishes `sha-<full SHA>`;
+version tags retain the self-hosted distribution aliases and are the only path
+that moves `latest`. No path deploys: `master` publication exists so a selected
+revision is already addressable instead of racing master through a dispatch, and
+replacement still never pulls. Resolve a candidate's registry digest and verify
+its source revision; never use a mutable tag as rollout identity.
 
 The former workflow lives only at `tests/fixtures/retired-deploy.yml` so existing
 schema/worker/cleanup regression tests still exercise their historical contract.

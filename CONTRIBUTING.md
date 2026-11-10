@@ -101,9 +101,12 @@ not claims about stronger GitHub enforcement. Recheck settings before merging.
 ## Release cadence and versioning
 
 `VERSION` and `package.json` record the current application version. The image
-workflow in `.github/workflows/release.yml` runs on `v*` tags or manual dispatch,
-publishing Linux amd64 images to `ghcr.io/delicioushouse/aries-app`; semver tags
-produce version/minor tags and `latest`. Manual dispatch produces a SHA tag.
+workflow in `.github/workflows/release.yml` runs on `v*` tags, `master` pushes
+or manual dispatch, publishing Linux amd64 images to
+`ghcr.io/delicioushouse/aries-app`; semver tags produce version/minor tags and
+`latest`. A `master` merge or a manual dispatch produces only the
+`sha-<full SHA>` tag and never moves `latest`, so publication stays separate
+from both the installer and deployment.
 Source is distributed through this public repository; `package.json` is private,
 so this is not an npm package distribution contract.
 
