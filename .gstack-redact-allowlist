@@ -1,0 +1,13 @@
+# gstack-redact exact-span allowlist (recovery custody tree only).
+# Each line is the exact matched text of a HIGH finding reviewed as a
+# benign test fixture in the preserved review-06d831eb snapshot:
+#   creds.basic_auth_url  tests/insights-classifier-preflight.test.ts:40
+#     userinfo-stripping test; reserved .test host, literal user:pw.
+#   openai.key            tests/marketing/performance-context.test.ts:134,143
+#     redaction-test input + negative assertion; span is an alphabet walk.
+#   slack.token           tests/oauth-callback-runtime.test.ts:283,294
+#     injected fetchImpl mock response + expected-value compare; no digits.
+# Exact spans only, no wildcards. Card t_da2522d7.
+http://user:pw@gw.test:8642'
+sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD
+xoxb-slack-bot-token
