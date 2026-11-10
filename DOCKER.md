@@ -18,8 +18,11 @@
 Production is the existing ubuntu-docker stack at https://aries.deliciouswines.org.
 The former checkout-based Deploy workflow is retired from GitHub Actions; its
 test fixture preserves helper regression coverage, not permission to execute it.
-Merging to `master` no longer deploys. Existing queued runs retain their old
-workflow definition: do not attach a runner, rerun or repoint them.
+Merging to `master` no longer deploys. It publishes a `sha-<full SHA>` image
+through `release-image` so a selected revision is addressable; that is
+publication, not rollout, and it does not move `latest`. Existing queued runs
+retain their old workflow definition: do not attach a runner, rerun or repoint
+them.
 
 Follow [the replacement release protocol](docs/runbooks/ubuntu-docker-replacement.md).
 It records the current three-worker inventory, missing compatibility evidence, offline

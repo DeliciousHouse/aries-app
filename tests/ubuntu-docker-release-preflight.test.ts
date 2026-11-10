@@ -89,8 +89,11 @@ test('retired deployment cannot reach ubuntu-docker through any active workflow'
 test('existing hosted publisher offers a SHA-addressable preparation image only', () => {
   const release = readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   assert.match(release, /runs-on: ubuntu-latest/);
-  assert.match(release, /type=sha,format=long,enable=\$\{\{ github.event_name == 'workflow_dispatch' \}\}/);
+  // Master merges publish sha-<full SHA> so an exact revision is addressable
+  // without a dispatch race; only a v* tag may move `latest`.
+  assert.match(release, /type=sha,format=long,enable=\$\{\{ github.event_name == 'workflow_dispatch' \|\| github.ref == 'refs\/heads\/master' \}\}/);
   assert.match(release, /type=raw,value=latest,enable=\$\{\{ startsWith\(github.ref, 'refs\/tags\/v'\) \}\}/);
+  assert.doesNotMatch(release, /value=latest,enable=[^\n]*heads\/master/);
   assert.doesNotMatch(release, /docker compose|self-hosted|environment: production/);
   const guidance = readFileSync(path.join(root, 'docs/DEPLOYMENT.md'), 'utf8');
   assert.match(guidance, /https:\/\/aries\.deliciouswines\.org/);

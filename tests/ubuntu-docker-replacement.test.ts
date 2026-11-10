@@ -8,7 +8,7 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 // @ts-expect-error — operational .mjs module.
-import { dockerApi, replacementBody, replaceRelease, serviceNames, validateExecution, validateSources, validateRehearsalTarget } from '../scripts/release/ubuntu-docker-replace.mjs';
+import { classifyFailure, dockerApi, mutatingReasons, refusalReasons, replacementBody, replaceRelease, serviceNames, validateExecution, validateSources, validateRehearsalTarget } from '../scripts/release/ubuntu-docker-replace.mjs';
 // @ts-expect-error — offline operational preflight.
 import { requiredCheckpoints } from '../scripts/release/ubuntu-docker-preflight.mjs';
 
@@ -110,6 +110,46 @@ test('execution refuses historical checkpoints, migration boundaries, source dri
   validateSources(originals, expected);
   originals[0].Config.Env.push('DRIFT=1');
   assert.throws(() => validateSources(originals, expected), /drift/);
+});
+
+test('a stopped source is a named recoverable precondition, not drift, and tampering still outranks it', () => {
+  const originals = serviceNames.map(source) as ReturnType<typeof source>[];
+  const expected = Object.fromEntries(originals.map((c) => [c.Name.slice(1), { id: c.Id,
+    fingerprint: createHash('sha256').update(JSON.stringify({ Config: c.Config, HostConfig: c.HostConfig, Networks: c.NetworkSettings.Networks })).digest('hex'),
+  }]));
+  // Fingerprints cover Config/HostConfig/Networks only, so a deliberately
+  // stopped worker still matches a fresh inventory: the refusal must say so.
+  for (const name of serviceNames) {
+    const stopped = originals.map((c) => (c.Name === `/${name}` ? { ...c, State: { Running: false } } : c));
+    assert.throws(() => validateSources(stopped, expected), { message: 'Source not running' });
+    assert.equal(classifyFailure(new Error('Source not running')).code, 2);
+  }
+  const tampered = originals.map((c) => ({ ...c, State: { Running: false }, Config: { ...c.Config, User: 'root' } }));
+  assert.throws(() => validateSources(tampered, expected), { message: 'Source drift' });
+});
+
+test('pre-mutation refusals exit 2 with their own reason; mutating and unknown failures exit 1', () => {
+  assert.deepEqual(classifyFailure(new Error('Source not running')), { reason: 'Source not running', code: 2 });
+  for (const reason of refusalReasons) assert.deepEqual(classifyFailure(new Error(reason)), { reason, code: 2 });
+  for (const reason of mutatingReasons) assert.deepEqual(classifyFailure(new Error(reason)), { reason, code: 1 });
+  // Parser, filesystem and daemon messages may carry paths or credentials.
+  for (const unknown of [new Error("ENOENT: open '/home/node/private-config/app.env'"),
+    new Error('connect EACCES /var/run/docker.sock'), new SyntaxError('Unexpected token }'), undefined, {}]) {
+    assert.deepEqual(classifyFailure(unknown as never), { reason: 'Unrecognized failure', code: 1 });
+  }
+  // A reason that is both retryable and mutating would make exit 2 unsafe.
+  assert.ok([...mutatingReasons].every((reason) => !refusalReasons.has(reason)));
+});
+
+test('every authored refusal literal in the release modules stays classifiable', () => {
+  const authored = ['scripts/release/ubuntu-docker-replace.mjs', 'scripts/release/ubuntu-docker-preflight.mjs']
+    .flatMap((file) => readFileSync(path.resolve(file), 'utf8').split('\n').filter((line) => !line.trimStart().startsWith('//')))
+    .flatMap((line) => [...line.matchAll(/new Error\('([^']*)'\)/g)].map((m) => m[1]));
+  assert.ok(authored.length > 20);
+  for (const message of authored) {
+    assert.ok(refusalReasons.has(message) || mutatingReasons.has(message),
+      `unclassified refusal literal: ${message}`);
+  }
 });
 
 test('post-quiescence drift refuses before mutation and parity failure contains all candidates', async () => {
@@ -225,6 +265,15 @@ test('Linux full CLI uses explicit isolated socket, separate lock and verifier h
         checkpoints: Object.fromEntries(requiredCheckpoints.map((name: string) => [name, { sha, image, evidence: 'structural-fixture-only' }])),
         sources: inventory, mode: 'compatible_image_only', schemaChanged: false, checkpointAt: new Date().toISOString(),
         verifier: { path: verifier, sha256: createHash('sha256').update(readFileSync(verifier)).digest('hex') } }));
+      // A stopped source refuses pre-mutation with its own reason and exit 2,
+      // so the controller can retry this SHA instead of stamping it failed.
+      h.originals[3].State.Running = false;
+      const refused: any = await run('--execute', planFile).then(() => null, (error) => error);
+      assert.equal(refused.code, 2);
+      assert.match(refused.stderr, /^Source not running\. Keep rollout gated/);
+      assert.ok(h.calls.every((c) => !/\/stop|\/rename|\/create|\/disconnect/.test(c)));
+      assert.equal(existsSync(`${socket}.replacement.lock`), false);
+      h.originals[3].State.Running = true;
       const receipt = JSON.parse((await run('--execute', planFile)).stdout);
       assert.equal(receipt.deployed, false);
       assert.equal(receipt.status, 'rehearsal_passed');

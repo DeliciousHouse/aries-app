@@ -6,11 +6,56 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { preflightRelease } from './ubuntu-docker-preflight.mjs';
+import { preflightRelease, requiredCheckpoints } from './ubuntu-docker-preflight.mjs';
 
 export const serviceNames = ['app', 'scheduled-posts', 'insights-sync', 'weekly-trigger']
   .map((name) => `aries-a3e604b4-${name}`);
 const network = 'aries-cutover-v1';
+
+// Authored refusals only: fixed literals with no path, host, daemon response or
+// credential content, so an operator can see WHY a release was refused without
+// replaying the validators against live inventory. Parser, filesystem and
+// daemon messages are never printed. The replacement test asserts that every
+// authored error literal in this module and the preflight stays listed in one
+// of these two sets, so the operator-visible contract cannot rot.
+export const refusalReasons = new Set([
+  'A sanitized release plan is required; see docs/runbooks/ubuntu-docker-release.md',
+  'Invalid host', 'Invalid origin', 'Invalid sha', 'Invalid image: a registry digest is required',
+  'Missing checkpoints', ...requiredCheckpoints.map((name) => `Missing or mismatched checkpoint: ${name}`),
+  'Schema/cutover changes are not supported', 'Fresh release checkpoint required',
+  'Reviewed verifier required', 'Verifier drift', 'Unreadable or invalid JSON release plan',
+  'Unreadable or invalid JSON rehearsal target', 'Production socket forbidden',
+  'Replacement lock unavailable; inspect retained state before manual removal',
+  'Missing source inventory', 'Source drift', 'Source not running',
+  'Unexpected network', 'Unsupported static endpoint', 'Candidate digest/revision mismatch',
+  'Source changed during quiescence', 'Operations verifier failed',
+  'Invalid isolated target', 'Non-fixture source',
+  'Wrong execution platform', 'Wrong execution host', 'Use --inventory or --execute <plan.json>',
+  'Docker request failed', 'Invalid Docker response', 'Docker timeout', 'Docker unavailable',
+]);
+
+// Authored failures that can only arise once a mutation has begun. The inner
+// four never escape replaceRelease (its catch rewrites them), but they stay
+// listed so none is ever misread as a retryable refusal.
+export const mutatingReasons = new Set([
+  'Replacement failed; candidates stopped, originals retained; use reviewed recovery procedure',
+  'Replacement failed; candidate containment failed, operator intervention required',
+  'Replacement parity failed', 'Candidate not contained',
+  'Health check failed', 'Database health failed',
+]);
+
+// Exit 2: refused before any Docker mutation; nothing was stopped, renamed or
+// created, so the named precondition can be fixed and the SAME sha retried.
+// A controller must not write a sticky per-sha failure stamp for exit 2.
+// Exit 1: a mutating failure or an unrecognized error. Fail closed: no retry
+// without the reviewed recovery procedure.
+export function classifyFailure(error) {
+  const message = error?.message;
+  if (mutatingReasons.has(message)) return { reason: message, code: 1 };
+  if (refusalReasons.has(message)) return { reason: message, code: 2 };
+  return { reason: 'Unrecognized failure', code: 1 };
+}
+
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const identity = (container) => hash(JSON.stringify({
   Config: container.Config, HostConfig: container.HostConfig,
@@ -52,10 +97,17 @@ export function validateSources(originals, expected) {
   if (!expected || Object.keys(expected).sort().join() !== [...serviceNames].sort().join()) throw new Error('Missing source inventory');
   for (const original of originals) {
     const name = original.Name.slice(1);
-    if (!serviceNames.includes(name) || !original.State.Running
+    if (!serviceNames.includes(name)
       || original.Id !== expected[name]?.id || identity(original) !== expected[name]?.fingerprint
       || original.Config.User !== '1001:1001'
       || !original.Config.Env.includes('ARIES_SKIP_DB_INIT=1')) throw new Error('Source drift');
+    // Fingerprints cover Config/HostConfig/Networks, so a worker stopped on
+    // purpose matches a fresh inventory and is NOT tampering. Still refuse:
+    // replacement would start it (silently resuming production work) and the
+    // accepted phase cannot produce its functional probe. Name it separately so
+    // the refusal is actionable and the sha stays retryable. Checked after
+    // drift, so tampering on a stopped source still reports drift.
+    if (!original.State.Running) throw new Error('Source not running');
     // Force validation before any stop; exact protected settings remain in memory.
     replacementBody(original, original.Config.Image);
   }
@@ -151,7 +203,8 @@ async function main() {
   let target;
   if (args[0] === '--rehearsal') {
     const targetPath = args[1];
-    target = JSON.parse(readFileSync(targetPath, 'utf8'));
+    try { target = JSON.parse(readFileSync(targetPath, 'utf8')); }
+    catch { throw new Error('Unreadable or invalid JSON rehearsal target'); }
     // No DOCKER_HOST fallback or production socket alias (including symlinks).
     target.socket = realpathSync(target.socket);
     if (['/run/docker.sock', '/var/run/docker.sock'].includes(target.socket)) throw new Error('Production socket forbidden');
@@ -163,11 +216,15 @@ async function main() {
   if (!['--inventory', '--execute'].includes(mode)) throw new Error('Use --inventory or --execute <plan.json>');
   // A local single-writer lock is also held for inventory. Stale lock removal is manual.
   const lockPath = target ? `${target.socket}.replacement.lock` : '/home/node/.aries-replacement.lock';
-  const lock = openSync(lockPath, 'wx', 0o600);
+  let lock;
+  try { lock = openSync(lockPath, 'wx', 0o600); }
+  // Thrown before the try below, so a lock this run does not own is never removed.
+  catch { throw new Error('Replacement lock unavailable; inspect retained state before manual removal'); }
   try {
     let plan;
     if (mode === '--execute') {
-      plan = JSON.parse(readFileSync(args[1], 'utf8'));
+      try { plan = JSON.parse(readFileSync(args[1], 'utf8')); }
+      catch { throw new Error('Unreadable or invalid JSON release plan'); }
       validateExecution(plan);
       if (hash(readFileSync(plan.verifier.path)) !== plan.verifier.sha256) throw new Error('Verifier drift');
     }
@@ -199,9 +256,10 @@ async function main() {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch(() => {
-    // Includes parser/probe/daemon failures: no credential-bearing diagnostics.
-    console.error('Replacement refused or failed. Keep rollout gated; inspect protected operator evidence and retained containers.');
-    process.exitCode = 1;
+  main().catch((error) => {
+    // Authored reason only; parser/probe/daemon detail is never echoed.
+    const { reason, code } = classifyFailure(error);
+    console.error(`${reason}. Keep rollout gated; inspect protected operator evidence and retained containers.`);
+    process.exitCode = code;
   });
 }

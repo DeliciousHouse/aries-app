@@ -120,7 +120,16 @@ removing a stale lock inspect retained state; no automatic crash retry.
 
 Additional plan fields:
 - sources: exactly four current service names, each id/fingerprint from fresh
-  inventory. Changed identity/config/running state refuses before replacement.
+  inventory. Changed identity or config refuses before replacement as
+  `Source drift`. A source that is not running refuses separately as
+  `Source not running` (see exit codes below): fingerprints cover
+  Config/HostConfig/Networks only, so a worker stopped on purpose matches a
+  fresh inventory and is a recoverable precondition, not tampering. Replacement
+  still refuses it, because creating and starting its candidate would resume
+  production work the operator had stopped and the accepted phase cannot produce
+  that worker's functional probe. Deciding to resume a stopped worker is a
+  separate, deliberate operations step before the release, never a side effect
+  of one.
 - mode: compatible_image_only; schemaChanged: false. Any required schema/protocol
   boundary means STOP and return exact incompatibility to dev-lead; this path
   deliberately cannot execute migrations or silently skip a required cutover.
@@ -231,10 +240,40 @@ and phase receipts for canonical review before repeating candidate acceptance.
 
 ## Failure and recovery
 
+### Exit codes and controller retry
+
+The command prints one authored refusal reason followed by the standing gating
+sentence, then exits:
+
+| Exit | Meaning | Controller action |
+| --- | --- | --- |
+| 0 | Receipt on stdout. | Normal. |
+| 2 | Refused BEFORE any Docker mutation: nothing stopped, renamed, disconnected or created. | Fix the named precondition and retry the SAME sha. Do NOT write a sticky per-sha failure stamp; a stopped worker must not permanently block a revision. |
+| 1 | A mutating failure (`Replacement failed...`) or an unrecognized error. | Fail closed. No automatic retry; use the reviewed recovery procedure below. |
+
+Reasons are a fixed allowlist of authored literals in
+`scripts/release/ubuntu-docker-replace.mjs` with no path, host, daemon response
+or credential content; parser, filesystem and daemon messages are never echoed
+and classify as exit 1 (`Unrecognized failure`). A test asserts that every
+authored refusal literal in the replacement and preflight modules stays
+classified, so the operator-visible contract cannot silently rot. Exit 2 is the
+only code that authorizes a same-sha retry, and an exit-2 refusal is the whole
+diagnosis: do not replicate the exported validators against live inventory.
+
 Preflight/quiescence failure leaves Docker unchanged. Replacement failure stops
 candidates, retains originals, holds publishing; failed containment needs immediate
 operator intervention. No automatic old-image restart: candidate code may already
 have written data despite skipped init. Never replay unknown-outcome posts.
+
+A controller's rollback must restore the PRE-ATTEMPT run state exactly: an
+original that was not running when the attempt started stays stopped. Blanket
+`docker start` on every non-running original is not rollback, it is an
+unreviewed production change — on 2026-11-10 an exit-2-class refusal that
+mutated nothing was followed by a rollback that resumed `weekly-trigger` and so
+started four due weekly marketing jobs. A failed deploy must never start
+production work that was not running before it. Capture each original's
+`State.Running` with the inventory and restore exactly that.
+
 Before a data/protocol boundary, use isolated-rehearsed recovery: contain traffic
 and egress, stop/disconnect candidates, restore original names/aliases and retained
 config, prove old app/worker compatibility/consistency, then resume deliberately.
