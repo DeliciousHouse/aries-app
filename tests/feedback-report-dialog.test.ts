@@ -82,6 +82,9 @@ async function withReportDialog(
   const documentStub = {};
   Object.defineProperty(documentStub, 'activeElement', { get: () => activeElement });
   (globalThis as Record<string, unknown>).document = documentStub;
+  // Motion checks these constructors even for react-test-renderer's non-DOM nodes.
+  (globalThis as Record<string, unknown>).HTMLElement = class {};
+  (globalThis as Record<string, unknown>).SVGElement = class {};
 
   let fetchCalls = 0;
   const requestBodies: Array<Record<string, unknown>> = [];
@@ -205,6 +208,8 @@ async function withReportDialog(
   } finally {
     delete (globalThis as Record<string, unknown>).window;
     delete (globalThis as Record<string, unknown>).document;
+    delete (globalThis as Record<string, unknown>).HTMLElement;
+    delete (globalThis as Record<string, unknown>).SVGElement;
     delete (globalThis as Record<string, unknown>).fetch;
   }
 }
