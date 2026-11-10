@@ -1,6 +1,6 @@
 import pool from '@/lib/db';
 
-export type DbProvider = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'openai' | 'slack';
+export type DbProvider = 'meta_ads' | 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'openai' | 'slack';
 export type DbConnectionStatus = 'pending' | 'connected' | 'reauthorization_required' | 'disconnected' | 'error';
 
 export type DbConnectionRow = {
@@ -95,8 +95,10 @@ export async function dbUpsertConnection(args: {
         refresh_expires_at = COALESCE(EXCLUDED.refresh_expires_at, oauth_connections.refresh_expires_at),
         connected_at = COALESCE(EXCLUDED.connected_at, oauth_connections.connected_at),
         disconnected_at = EXCLUDED.disconnected_at,
-        external_account_id = COALESCE(EXCLUDED.external_account_id, oauth_connections.external_account_id),
-        external_account_name = COALESCE(EXCLUDED.external_account_name, oauth_connections.external_account_name),
+        external_account_id = CASE WHEN EXCLUDED.provider = 'meta_ads' THEN EXCLUDED.external_account_id
+          ELSE COALESCE(EXCLUDED.external_account_id, oauth_connections.external_account_id) END,
+        external_account_name = CASE WHEN EXCLUDED.provider = 'meta_ads' THEN EXCLUDED.external_account_name
+          ELSE COALESCE(EXCLUDED.external_account_name, oauth_connections.external_account_name) END,
         last_error_code = EXCLUDED.last_error_code,
         last_error_message = EXCLUDED.last_error_message,
         updated_at = now()

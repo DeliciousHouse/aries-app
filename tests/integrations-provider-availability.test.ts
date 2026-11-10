@@ -67,8 +67,12 @@ test('/api/integrations marks unconfigured providers as disabled and unavailable
 
     assert.equal(response.status, 200);
     assert.equal(body.status, 'ok');
-    assert.equal(body.summary.total, 6);
-    assert.equal(body.summary.not_connected, 6);
+    assert.equal(body.summary.total, 7);
+    assert.equal(body.summary.not_connected, 7);
+    const ads = body.cards.find((card) => card.platform === 'meta_ads');
+    assert.equal(ads?.connection_state, 'disabled');
+    assert.deepEqual(ads?.available_actions, []);
+    assert.equal(ads?.error?.code, 'provider_unavailable');
 
     const linkedin = body.cards.find((card) => card.platform === 'linkedin');
     assert.equal(linkedin?.connection_state, 'disabled');

@@ -13,6 +13,7 @@ import {
 
 import { connectedProfileLabel } from './connected-profile-labels';
 import { selectableMarketingChannels } from '@/lib/marketing-channels';
+import MetaAdsChannel from '@/frontend/integrations/meta-ads-channel';
 import { customerSafeUiErrorMessage, profileApiErrorMessage } from './customer-safe-copy';
 import { DashboardHero, EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
 import { CANONICAL_GOAL_OPTIONS } from '@/backend/insights/goal/goal-options';
@@ -31,12 +32,7 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
     label: 'Facebook Page',
     description: 'Organic posts to your connected Facebook Page.',
   },
-  {
-    id: 'meta-ads',
-    label: 'Meta Ads',
-    disabled: true,
-    description: 'Paid advertising on Facebook and Instagram is not available yet.',
-  },
+
   {
     id: 'instagram',
     label: 'Instagram',
@@ -490,6 +486,7 @@ export default function AriesBusinessProfileScreen() {
                   );
                 })}
               </div>
+              <MetaAdsChannel />
               <div className="rounded-[1.3rem] border border-white/8 bg-black/18 px-4 py-4 text-white">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>

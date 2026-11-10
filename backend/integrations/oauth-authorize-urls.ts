@@ -77,6 +77,7 @@ export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): UR
       return url;
     }
 
+    case 'meta_ads':
     case 'facebook': {
       const clientId = metaAppId();
       if (!clientId) {

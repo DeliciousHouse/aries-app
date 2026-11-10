@@ -20,6 +20,7 @@ import { TopPostsSection }      from "@/frontend/insights/TopPostsSection";
 import { ConversationsSection } from "@/frontend/insights/ConversationsSection";
 import { AriesSection }         from "@/frontend/insights/AriesSection";
 import { AudienceSection }      from "@/frontend/insights/AudienceSection";
+import MetaAdsChannel from "@/frontend/integrations/meta-ads-channel";
 
 /**
  * Client body for the /insights route. Renders the full insights dashboard
@@ -103,6 +104,7 @@ export function InsightsDashboard({
               axis, not period/platform, so it takes no props from the filter
               row. */}
           {weeklyRecapEnabled && <WeeklyRecapSection />}
+          {platform === 'all' && <MetaAdsChannel performance period={period} />}
 
           {/* 2 — Goal */}
           <GoalSection period={period} platform={platform} />
